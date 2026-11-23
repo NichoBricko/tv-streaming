@@ -1,0 +1,10 @@
+# Secrets and machine state - never commit
+**/lgtv-devmode/
+*token*
+*.pem
+*.key
+**/.ssh/
+**/sunshine_state.json
+**/credentials/
+*.bak-*
+*.log
