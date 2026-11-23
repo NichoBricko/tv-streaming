@@ -1,0 +1,8 @@
+[Unit]
+Description=Renew LG TV Developer Mode session (keeps Moonlight installed)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/lgtv-devmode-extend

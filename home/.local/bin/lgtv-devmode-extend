@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Keep the LG TV's Developer Mode session alive, so the sideloaded Moonlight app
+# isn't removed when the session expires. Runs daily from a systemd user timer.
+#
+# The session token lives in /var/luna/preferences/devmode_enabled on the TV.
+# A private copy is kept here so renewal also works while the TV is off.
+
+set -u
+ARES=~/.local/bin/ares-novacom
+DEVICE=lgtv
+STATE_DIR=~/.config/lgtv-devmode
+TOKEN_FILE=$STATE_DIR/token
+API=https://developer.lge.com/secure
+
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
+
+# Refresh the cached token from the TV if it is reachable.
+fresh=$(cd ~ && timeout 30 "$ARES" -d "$DEVICE" --run "cat /var/luna/preferences/devmode_enabled" 2>/dev/null \
+        | grep -oE '^[0-9A-Za-z]{32,}' | head -1)
+if [[ -n $fresh ]]; then
+  (umask 077; printf '%s\n' "$fresh" > "$TOKEN_FILE")
+  echo "Token refreshed from TV."
+else
+  echo "TV not reachable; using cached token."
+fi
+
+if [[ ! -s $TOKEN_FILE ]]; then
+  echo "No token available (TV never reached). Nothing to do." >&2
+  exit 1
+fi
+token=$(<"$TOKEN_FILE")
+
+before=$(curl -sS --max-time 20 "$API/CheckDevModeSession.dev?sessionToken=$token")
+echo "Before: $before"
+
+reset=$(curl -sS --max-time 20 "$API/ResetDevModeSession.dev?sessionToken=$token")
+echo "Reset:  $reset"
+
+after=$(curl -sS --max-time 20 "$API/CheckDevModeSession.dev?sessionToken=$token")
+echo "After:  $after"
+
+[[ $reset == *'"result":"success"'* ]] || { echo "Renewal failed." >&2; exit 1; }
