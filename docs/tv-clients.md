@@ -1,40 +1,61 @@
-# Moonlight on your TV: which client, and how
+# Moonlight on your TV
 
-Sunshine works with any Moonlight client. What differs between TVs is how you get Moonlight onto them, and how well their hardware decodes 4K HEVC.
+Sunshine works with any Moonlight client. What differs between TVs is how Moonlight gets onto the TV, how fast its network port is, and whether it stays on the network in standby. That last one decides whether a single **Wake** press can start a cold PC (see [Standby check](#standby-check)).
 
-| TV / device | Moonlight client | How to install | Notes |
-|---|---|---|---|
-| **Android TV / Google TV** (Sony, Philips, TCL, Hisense, Xiaomi, **Nvidia Shield**, **Google TV Streamer**, Chromecast w/ Google TV) | Moonlight Game Streaming (official) | Google Play Store | The easiest option. Shield and Google TV Streamer have gigabit Ethernet and strong decoders. |
-| **Apple TV 4K** (2nd gen 2021, 3rd gen 2022) | Moonlight Game Streaming (official) | App Store | Very good decoder. The 3rd-gen **64 GB has no Ethernet**; get the 128 GB model. |
-| **Amazon Fire TV** (Stick 4K / 4K Max, Cube) | Moonlight (official Android build) | Amazon Appstore | The Cube has Ethernet; sticks need a USB Ethernet adapter for a stable 4K stream. |
-| **LG webOS** (webOS 3+) | [Moonlight TV](https://github.com/mariotaku/moonlight-tv) (community port) | Sideload via LG Developer Mode, see [`extras/lg-webos-devmode`](../extras/lg-webos-devmode/README.md) | Works well. Developer Mode must be renewed (automated by the extra). LG Ethernet is 100 Mb/s, so keep bitrate ≤ ~65 Mbps. TV Bluetooth controller lag was high in our test. |
-| **Samsung Tizen** (2020+, Tizen 5.5+) | Moonlight for Tizen (community, [brightcraft/moonlight-tizen](https://github.com/brightcraft/moonlight-tizen)) | Sideload: enable Developer Mode on the TV, then use the **Apps2Samsung** installer or Tizen Studio (see the project's Installation Guide) | The community also reports HDR/120 fps on newer Tizen. Steps change between Tizen versions, so follow the project's current guide. |
-| **Roku**, older/other smart TVs | none | Use one of the boxes above on an HDMI input | |
-| Any TV, no extra box | **Steam Link** app (Valve) | Most app stores, incl. LG/Samsung | An alternative to Moonlight that uses Steam Remote Play instead of Sunshine. Not covered by this repo. |
+## Which client for your TV
+| TV / device | Moonlight client | How to install | Claude can do it | Notes |
+|---|---|---|---|---|
+| **Android TV / Google TV**: Sony, TCL, Philips, Sharp, Xiaomi, Hisense (Android models); **Nvidia Shield**, **Google TV Streamer**, Chromecast with Google TV | Moonlight Game Streaming (official) | Google Play Store, or the APK from [moonlight-android releases](https://github.com/moonlight-stream/moonlight-android/releases) | **Yes** via `adb` ([below](#android-tv--google-tv--fire-os-via-adb)) | Easiest platform; `adb logcat` shows Moonlight's own log. Shield and Google TV Streamer have gigabit Ethernet; most TVs 100 Mb/s. |
+| **LG webOS** (webOS 3+) | [Moonlight TV](https://github.com/mariotaku/moonlight-tv) (community) | Sideload via LG Developer Mode | **Yes** via LG's `ares` tools: [extras/lg-webos-devmode](../extras/lg-webos-devmode/README.md) | Developer Mode must be renewed (automated). 100 Mb/s Ethernet. The TV's Bluetooth added noticeable controller lag. Standby drops off the network (verified). |
+| **Samsung Tizen** (2020+, Tizen 5.5+) | [Moonlight for Tizen](https://github.com/brightcraft/moonlight-tizen) (community) | Developer Mode on the TV, then **Apps2Samsung** (easiest) or Tizen Studio / `sdb`; follow the project's [Installation Guide](https://github.com/brightcraft/moonlight-tizen/wiki/Installation-Guide) | Partly (guided; the certificate step is manual) | Steps change between Tizen versions. Turn off "Instant On" if the TV answers pings in standby. |
+| **Apple TV 4K** (2021+) | Moonlight Game Streaming (official) | App Store | No (manual) | 128 GB model has gigabit Ethernet (the 3rd-gen 64 GB has none). Good controller support. |
+| **Amazon Fire TV on Fire OS**: Fire TV Stick 4K / 4K Max (older generations), Fire TV Cube, Fire OS TVs | Moonlight (Android build) | Amazon Appstore, or APK via `adb` | **Yes** via `adb` | Sticks have no Ethernet; use a USB Ethernet adapter for stable 4K. |
+| **Fire TV on Vega OS** (Fire TV Stick 4K Select, some Stick HD) | - | - | - | **Not supported:** Vega OS can't run Android apps or sideload. |
+| **Hisense VIDAA, Roku, Panasonic (own OS), other smart TVs** | - | no Moonlight client exists | - | Plug one of the devices above into an HDMI input. |
+| Any TV with **Steam Link** | Steam Link (Valve) | TV app store | - | Different technology (Steam Remote Play), not covered by this project. |
+
+## Android TV / Google TV / Fire OS via adb
+Claude (or you) can install and launch Moonlight from the PC:
+1. **On the TV, enable developer options:**
+   - **Android/Google TV:** Settings → System → About → click **Build** 7 times. Then Developer options → **USB debugging** + **Network debugging**. On Android TV 11+ it's **Wireless debugging**, which shows a pairing code.
+   - **Fire OS:** Settings → My Fire TV → Developer options → **ADB debugging** + **Apps from Unknown Sources**.
+2. **On the PC:** install `adb` (`android-tools` / `adb` package), then:
+   ```bash
+   adb pair <TV-IP>:<pair-port>     # Wireless debugging only, enter the code shown on the TV
+   adb connect <TV-IP>:5555          # (or the port shown under Wireless debugging); accept the prompt on the TV
+   adb install moonlight-*.apk       # APK from the moonlight-android GitHub releases (verify the release page)
+   adb shell monkey -p com.limelight -c android.intent.category.LAUNCHER 1   # launch
+   adb logcat | grep -i limelight    # Moonlight's log while testing
+   ```
+3. **Turn developer options off again** when you're done (or at least network debugging).
 
 ## Recommended Moonlight settings
 - **Resolution / fps:** your TV's native resolution, usually **3840x2160 @ 60**.
 - **Bitrate:**
-  - **50–80 Mbps** for 4K60 HEVC on gigabit Ethernet;
-  - **≤ 65 Mbps** if the device has 100 Mb/s Ethernet (most TVs);
-  - Wi-Fi: 5 GHz only, start around 40 Mbps.
-- **Codec:** HEVC (or AV1 if both the GPU and the client support it). Auto usually picks correctly.
-- **Wired Ethernet** on both ends if at all possible.
-- **TV picture mode: Game / Game Optimizer** for low input lag.
+  - **≤ 65 Mbps** on 100 Mb/s Ethernet (most TVs; 55 worked well on the reference LG);
+  - **80–150 Mbps** on gigabit boxes;
+  - Wi-Fi: 5 GHz only, start around 40.
+- **Codec:** HEVC (Auto usually picks it). HDR off unless the PC streams HDR.
+- **Network:** wired Ethernet on both ends if at all possible.
+- **TV picture mode:** **Game / Game Optimizer**.
 
-## Pairing
-1. On the PC, start Sunshine (`sunshine-on-demand start`) and open <https://localhost:47990>. Create the login the first time.
-2. In Moonlight, the PC appears automatically. If it doesn't, add it by IP.
-3. Moonlight shows a **PIN**. Enter it in Sunshine's web UI under **PIN**.
-4. Give the client a **fixed IP** in your router. The firewall rules and the Wake listener only accept `CLIENT_IP`.
+## Pairing (same on every client)
+1. Give the client a **fixed IP** (DHCP reservation in your router). The firewall and the Wake listener only accept `CLIENT_IP`.
+2. On the PC: `sunshine-on-demand start`, open <https://localhost:47990>, and create the login the first time.
+3. In Moonlight, select the PC (or add it by IP). Moonlight shows a **PIN**; enter it in Sunshine's web UI under **PIN**.
+
+## Standby check
+The one-press cold boot (`TV_AUTOLOGIN="auto"`) works because the PC pings the client right after boot: **"it answers" = "someone is on the TV and pressed Wake"**. Test this once:
+
+1. Put the TV/box in **standby** with the remote, and wait 30 s.
+2. On the PC: `ping -c3 <TV-IP>`.
+   - **No answer** → keep `TV_AUTOLOGIN="auto"` (one press).
+   - **Answers** → the device stays on the network in standby. Turn that setting off, for example LG **Quick Start+**, Samsung **Instant On**, or Android TV's "network standby" / "remote start" options (names vary by brand). If it can't be turned off, set `TV_AUTOLOGIN="on-wake"`: press Wake once to power on, and again at the login screen.
 
 ## Controller: TV or PC?
-| Paired to | Latency | Wake the PC with it | Config |
-|---|---|---|---|
-| **The PC** (Bluetooth or USB) | Lowest | Possible (Bluetooth wake) | `BLOCK_CLIENT_CONTROLLER="yes"`, so the TV can send no input at all |
-| **The TV / box** | Depends on the device; the LG TV was noticeably laggy, Shield and Apple TV are good | No | `BLOCK_CLIENT_CONTROLLER="no"` |
+| Paired to | Latency | Config |
+|---|---|---|
+| **The PC** (Bluetooth or USB) | Lowest | `BLOCK_CLIENT_CONTROLLER="yes"`, so the TV can send no input at all |
+| **The TV / box** | Depends on the device (LG TV: laggy; Shield / Apple TV: good) | `BLOCK_CLIENT_CONTROLLER="no"` |
 
-**Xbox controllers on Linux Bluetooth:**
-- **Update the controller firmware first** (Xbox Accessories app on Windows or Xbox). Pairing failed on firmware 5.09 and worked on 5.17.
-- If desktop pairing fails, pair with `bluetoothctl`: `agent NoInputNoOutput`, `default-agent`, `scan le`, `pair <MAC>`, `trust <MAC>`, `connect <MAC>`.
-- **Attach the Wi-Fi/Bluetooth antennas** to the motherboard. Without them we got a disconnect every 8–30 s.
+Xbox controller firmware, antennas and `bluetoothctl` pairing: see [troubleshooting.md](troubleshooting.md#controller).
