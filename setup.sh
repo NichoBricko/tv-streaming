@@ -6,6 +6,7 @@
 #   ./setup.sh setcap    [--dry-run]                  (re)grant Sunshine KMS capture caps
 #   ./setup.sh extra <lg-webos-devmode|rdr2-epic-heroic> [--dry-run]
 #   ./setup.sh status                                 show what's installed / running
+#   ./setup.sh report [BOOT]                          collect all logs of a boot (0 = current, -1 = previous)
 #   ./setup.sh uninstall [--dry-run]                  remove everything this installed
 #
 # User-level parts need no root. System-level parts call sudo (run them in a real
@@ -480,6 +481,30 @@ cmd_status() {
   journalctl -u sunshine-wol -n 3 --no-pager -o cat 2>/dev/null | grep -v -e '^Starting' -e '^Finished' | sed 's/^/   /' || true
 }
 
+cmd_report() {
+  local boot=${1:-0} out
+  # shellcheck source=/dev/null
+  [[ -r $CONFIG_SRC ]] && . "$CONFIG_SRC"
+  local u=${SUNSHINE_UNIT:-app-dev.lizardbyte.app.Sunshine.service}
+  out="${XDG_CACHE_HOME:-$HOME/.cache}/sunshine-on-demand/report-$(date +%Y%m%d-%H%M%S).txt"
+  mkdir -p "$(dirname "$out")"
+  {
+    echo "# sunshine-on-demand report, boot $boot, generated $(date)"
+    journalctl --list-boots --no-pager 2>/dev/null | tail -3
+    echo; echo "## System: boot reason, wake listener, TV auto-login, resume, login manager sessions"
+    journalctl -b "$boot" --no-pager -o short-iso -u sunshine-tv-autologin -u sunshine-tv-wake -u sunshine-wol -u sunshine-resume 2>/dev/null \
+      | grep -vE 'Deactivated|Consumed|^-- '
+    journalctl -b "$boot" --no-pager -o short-iso 2>/dev/null | grep -E 'systemd-logind.*(New|Removed) session|PM: suspend (entry|exit)|System is (powering|rebooting)'
+    echo; echo "## User: TV session and helpers"
+    journalctl --user -b "$boot" --no-pager -o short-iso -t sunshine-tv-session -t sunshine-on-demand -t sunshine-session-lock \
+      -t sunshine-display-mode -t sunshine-steam-reset -t sunshine-idle-stop 2>/dev/null
+    echo; echo "## Sunshine: lifecycle, client requests and sessions (set SUNSHINE_LOG_LEVEL=debug for every request)"
+    journalctl --user -b "$boot" -u "$u" --no-pager -o short-iso 2>/dev/null | grep -E 'Started|Stopp|CLIENT|session|Executing|Error|Fatal|Warning|/(serverinfo|pair|applist|launch|resume|cancel|appasset)|TUNNEL|Client|client' \
+      | grep -vE 'Found interface|config:' | cut -c1-260
+  } > "$out"
+  say "Report written to $out ($(wc -l < "$out") lines)"
+}
+
 cmd_uninstall() {
   [[ ${1:-} == --dry-run ]] && DRY=yes
   load_config
@@ -521,6 +546,7 @@ case "${1:-}" in
   setcap)    shift; [[ ${1:-} == --dry-run ]] && DRY=yes; cmd_setcap ;;
   extra)     shift; cmd_extra "$@" ;;
   status)    cmd_status ;;
+  report)    shift; cmd_report "$@" ;;
   uninstall) shift; cmd_uninstall "$@" ;;
-  *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

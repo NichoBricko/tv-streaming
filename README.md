@@ -183,6 +183,8 @@ Every helper logs to the journal: `journalctl --user -t sunshine-display-mode -t
 | Blocky picture | Moonlight bitrate too low (default can be ~10 Mbps) - set 50–80 Mbps (≤ 65 on 100 Mb/s TVs) |
 | Controller lag / drop-outs | See [controller notes](docs/tv-clients.md#controller-tv-or-pc) - antennas, firmware, pair to the PC |
 
+**Collect everything for a bug report:** `./setup.sh report` (current boot) or `./setup.sh report -1` (previous boot, e.g. after a test that ended in a reboot) writes all relevant logs - wake listener, TV auto-login, TV session, lock/unlock, display switching, Sunshine - into one file under `~/.cache/sunshine-on-demand/`. With `SUNSHINE_LOG_LEVEL="debug"` it also contains every request the Moonlight client made. Moonlight TV itself logs to LG's PmLog, which isn't readable without rooting the TV.
+
 ## Uninstall
 ```bash
 ./setup.sh uninstall --dry-run   # preview
