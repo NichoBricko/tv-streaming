@@ -20,6 +20,8 @@
 - After a stream: display back to 1080p@165, Steam restarted to the tray with a correct window size, sleep inhibitor released.
 - Idle stop: Sunshine stopped 10 min after the last disconnect.
 - Wake packets with the wrong MAC or from another IP were ignored (local test).
+- **Cold boot, one Wake press (TV session):** power-on → login screen at 6 s → network at 11 s → TV detected by ping at 12 s → locked TV session at 13 s → stream unlocked it and started Steam Big Picture on request. Power button with the TV off → normal login screen. The board reports SMBIOS Wake-up Type "Power Switch" for every boot, so the boot-reason trigger never fires here; the TV ping does.
+- Robustness: exiting Steam/Big Picture during or after a stream ends the TV session cleanly; a Wake brings it back (second-Wake trigger at the login screen).
 
 ## Lessons learned
 - **The Moonlight default bitrate is low.** At ~7 Mbps a 4K picture looks blocky. Set 50–65 Mbps.
@@ -28,6 +30,9 @@
 - **Controller input doesn't count as desktop activity**, so without the inhibitor the PC could sleep mid-game.
 - **The TV's Bluetooth was too laggy** for the controller. Pairing with the PC's Bluetooth only worked after a controller firmware update (5.09 → 5.17), and only became stable once the motherboard's **Wi-Fi/Bluetooth antennas** were attached.
 - **The front-panel USB-C** on the case carried no data. Use rear ports for wired controllers.
+- **Moonlight TV only contacts a host** on page open, Retry, mDNS announcements and for 15 s after Wake - it does not keep polling an offline PC. A cold boot takes longer than 15 s, hence the TV-ping trigger.
+- **`kwin_wayland --lockscreen` doesn't report the lock to logind** (LockedHint stays "no"), so `loginctl unlock-session` can't be used; the TV session locks itself through logind instead.
+- **LG TVs in standby** (here) drop off the network completely, so pinging the TV is a reliable "TV is on" signal - but check yours (Quick Start+).
 - **Moonlight TV sends Wake-on-LAN as a broadcast to UDP 9** (`mariotaku/commons-c` `net/wol/wol.c`), then polls the PC for 15 s.
 - **The LG Developer Mode session is 1000 h** and renewable through LG's `ResetDevModeSession` endpoint with the token from `/var/luna/preferences/devmode_enabled`.
 - For RDR2-specific problems (umu Steam ID, non-ASCII Epic name, fake EpicGamesLauncher parent, DX12), see [`extras/rdr2-epic-heroic`](../extras/rdr2-epic-heroic/README.md).
