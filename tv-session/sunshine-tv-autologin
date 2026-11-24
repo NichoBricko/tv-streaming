@@ -1,15 +1,22 @@
 #!/usr/bin/python3 -I
-"""Decide at boot whether to auto-login into the TV session.
+"""Auto-login into the TV session ("sunshine-tv": locked kiosk with Steam Big
+Picture + Sunshine) when the PC was woken for streaming. Runs as root.
 
-Run as root by sunshine-tv-autologin.service before the display manager starts.
-Reads why the PC was switched on from the SMBIOS "Wake-up Type" (System
-Information, type 1, offset 0x18) and, when the boot was caused by Wake-on-LAN,
-configures the display manager to log TV_USER in automatically into the
-"sunshine-tv" session (locked kiosk with Steam Big Picture + Sunshine).
-Any other boot gets the normal login screen.
+  sunshine-tv-autologin boot   (sunshine-tv-autologin.service, before the
+                                display manager) - reads the SMBIOS "Wake-up
+                                Type" of this boot (type 1, offset 0x18). Many
+                                boards report "Power Switch" for every boot, so
+                                this alone is often not enough.
+  sunshine-tv-autologin wake   (sunshine-tv-wake.path/.service) - the Wake
+                                listener received a magic packet from the client
+                                while nobody was logged in (the PC sits at the
+                                login screen after a Wake from power-off): enable
+                                a ONE-TIME auto-login into the TV session, restart
+                                the login screen, then remove the auto-login again.
 
 Settings (/etc/sunshine-on-demand.env):
-  TV_AUTOLOGIN   wol (default) | always | no
+  TV_AUTOLOGIN   auto (default: boot check + wake trigger) | wol (boot check only)
+                 | on-wake (wake trigger only) | always (every boot) | no
   TV_WAKE_TYPES  comma-separated wake types that count as Wake-on-LAN
                  (default "LAN Remote,PCI PME#")
   SOD_USER       user to log in
@@ -17,9 +24,12 @@ Settings (/etc/sunshine-on-demand.env):
 Only autologin entries this script created (Session=sunshine-tv) are ever
 removed, so an autologin you configured yourself is left alone.
 """
+import json
 import os
 import re
+import subprocess
 import sys
+import time
 
 SESSION = "sunshine-tv"
 WAKE_TYPES = {0: "Reserved", 1: "Other", 2: "Unknown", 3: "APM Timer", 4: "Modem Ring",
@@ -96,23 +106,52 @@ def set_sddm(user):
     return False
 
 
+def apply(dm, user):
+    if dm == "plasmalogin":
+        return set_plasmalogin(user)
+    if dm == "sddm":
+        return set_sddm(user)
+    log(f"display manager '{dm}' not supported for automatic TV login; skipping")
+    return None
+
+
+def user_logged_in(user):
+    """True if `user` has a real (class=user) login session."""
+    out = subprocess.run(["loginctl", "list-sessions", "--json=short"], capture_output=True, text=True).stdout
+    try:
+        sessions = json.loads(out or "[]")
+    except json.JSONDecodeError:
+        return True                    # unknown -> don't disturb anything
+    return any(s.get("user") == user and s.get("class") == "user" for s in sessions)
+
+
 def main():
-    mode = os.environ.get("TV_AUTOLOGIN", "wol")
+    action = sys.argv[1] if len(sys.argv) > 1 else "boot"
+    mode = os.environ.get("TV_AUTOLOGIN", "auto")
     user = os.environ.get("SOD_USER", "")
+    dm = display_manager()
+
+    if action == "wake":
+        if mode not in ("auto", "on-wake") or not user:
+            return 0
+        if user_logged_in(user):
+            log(f"wake: {user} is already logged in; nothing to do")
+            return 0
+        log(f"wake: nobody logged in - one-time auto-login of {user} into the TV session")
+        if apply(dm, user) is None:
+            return 0
+        subprocess.run(["systemctl", "restart", "display-manager.service"], check=False)
+        time.sleep(20)                 # the login manager reads its config while starting
+        apply(dm, "")
+        log("wake: one-time auto-login removed again")
+        return 0
+
     allowed = {t.strip() for t in os.environ.get("TV_WAKE_TYPES", "LAN Remote,PCI PME#").split(",")}
     wt = wake_type()
-    enable = bool(user) and (mode == "always" or (mode == "wol" and wt in allowed))
-    dm = display_manager()
+    enable = bool(user) and (mode == "always" or (mode in ("auto", "wol") and wt in allowed))
     log(f"wake-up type: {wt}; mode: {mode}; display manager: {dm or '?'} -> "
         f"{'auto-login into the TV session' if enable else 'normal login screen'}")
-    if dm == "plasmalogin":
-        changed = set_plasmalogin(user if enable else "")
-    elif dm == "sddm":
-        changed = set_sddm(user if enable else "")
-    else:
-        log(f"display manager '{dm}' not supported for automatic TV login; skipping")
-        return 0
-    if changed:
+    if apply(dm, user if enable else ""):
         log("display manager config updated")
     return 0
 

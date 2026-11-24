@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch for a Moonlight Wake that arrived while nobody was logged in
+
+[Path]
+# written by sunshine-wol-handler.py when no user session exists
+PathModified=/run/sunshine-on-demand/wake-pending
+Unit=sunshine-tv-wake.service
+
+[Install]
+WantedBy=multi-user.target

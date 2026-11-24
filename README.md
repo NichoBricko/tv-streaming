@@ -112,7 +112,11 @@ With `TV_SESSION="yes"`, a boot caused by Wake-on-LAN logs you in automatically 
 - A paired Moonlight stream **unlocks it, and it locks again afterwards**, exactly like after sleep. When idle for `IDLE_LIMIT` the PC **suspends** (`TV_SESSION_IDLE_ACTION`), so the next Wake resumes straight into the locked session.
 - Your **normal desktop login still requires your password**. Switching the PC on with the power button shows the normal login screen.
 
-How it decides: `sunshine-tv-autologin.service` runs before the display manager and reads the **SMBIOS Wake-up Type** of the current boot. `LAN Remote` / `PCI PME#` (`TV_WAKE_TYPES`) → auto-login into the TV session for this boot; anything else → normal login screen. Check what your board reports after a Moonlight wake with `sudo dmidecode -t 1 | grep -i wake` (or `journalctl -u sunshine-tv-autologin -b`). If it reports nothing useful, `TV_AUTOLOGIN="always"` uses the TV session on every boot.
+How it decides (`TV_AUTOLOGIN="auto"` uses both):
+1. **Wake at the login screen** (works on any board): after a Wake from power-off the PC boots to the normal login screen. **Press Wake in Moonlight a second time** once it has booted (~30 s). The Wake listener sees that nobody is logged in and remembers the wake; `sunshine-tv-wake.path` then enables a **one-time** auto-login into the TV session, restarts the login screen (safe - nobody is logged in), and removes the auto-login again 20 s later. Press **Retry** in Moonlight ~15 s later.
+2. **Boot reason** (only some boards): `sunshine-tv-autologin.service` reads the SMBIOS **Wake-up Type** before the login screen starts; `LAN Remote` / `PCI PME#` (`TV_WAKE_TYPES`) → straight into the TV session, no second Wake needed. Many boards (e.g. the reference ASUS B850M) report "Power Switch" for every boot - check yours after a Moonlight wake: `journalctl -u sunshine-tv-autologin -b`.
+
+Switching the PC on with its power button never auto-logs in. (`TV_AUTOLOGIN="always"` would use the TV session on every boot.)
 
 Requirements and limits:
 - **KWin** (KDE) for the session; **Plasma Login Manager or SDDM** for auto-login (others: set auto-login to the `sunshine-tv` session yourself).
@@ -133,7 +137,7 @@ By hand: app menu → **Sunshine: start/stop streaming host**, or `sunshine-on-d
 | `sunshine-wol.socket` + `sunshine-wol.service` | system | Listens on UDP 9; `sunshine-wol-handler.py` (runs as you) starts Sunshine **only** for a magic packet with your MAC sent **from `CLIENT_IP`**. Logs: `journalctl -u sunshine-wol` |
 | `sunshine-resume.service` | system | Starts Sunshine after every resume (the idle timer stops it again if nobody connects) |
 | `sunshine-login.service` | user | At login: starts Sunshine if a Wake arrived while nobody was logged in |
-| `sunshine-tv-autologin.service` + `/usr/local/lib/sunshine-on-demand/sunshine-tv-*` + `/usr/share/wayland-sessions/sunshine-tv.desktop` | system | Only with `TV_SESSION=yes`: the TV session and the boot-time auto-login decision (edits `/etc/plasmalogin.conf` `[Autologin]` - original kept as `.pre-sunshine-on-demand` - or an SDDM drop-in) |
+| `sunshine-tv-autologin.service`, `sunshine-tv-wake.path/.service` + `/usr/local/lib/sunshine-on-demand/sunshine-tv-*` + `/usr/share/wayland-sessions/sunshine-tv.desktop` | system | Only with `TV_SESSION=yes`: the TV session and the boot-time auto-login decision (edits `/etc/plasmalogin.conf` `[Autologin]` - original kept as `.pre-sunshine-on-demand` - or an SDDM drop-in) |
 | `/etc/sunshine-on-demand.env` | system | `WOL_MAC`, `CLIENT_IP`, `SUNSHINE_UNIT` for the system units |
 | `sunshine-idle-stop.timer` | user | Every minute: stops Sunshine after `IDLE_LIMIT` without a stream (reads `CLIENT CONNECTED/DISCONNECTED` in Sunshine's log) |
 | `sunshine-stream-inhibit.service` | user | `systemd-inhibit` against sleep/idle while streaming |
@@ -172,7 +176,8 @@ Every helper logs to the journal: `journalctl --user -t sunshine-display-mode -t
 | Display didn't switch / restore | `journalctl --user -t sunshine-display-mode`; `sunshine-display-mode current`; check `DISPLAY_OUTPUT` and that the mode exists |
 | Steam window wrong size after a stream | `journalctl --user -t sunshine-steam-reset` - skipped because a game was still running? Run `sunshine-steam-reset` by hand |
 | After waking from **power-off**, Moonlight stays on "Wake" | No user session at the login screen. Either log in (Sunshine then starts automatically) or use the TV session. `journalctl -u sunshine-wol -b` shows "wake remembered" |
-| TV session didn't start after a Wake | `journalctl -u sunshine-tv-autologin -b` shows the wake-up type the BIOS reported - add it to `TV_WAKE_TYPES` or use `TV_AUTOLOGIN="always"` |
+| TV session didn't start after a Wake from off | Press Wake again once the PC sits at the login screen. `journalctl -u sunshine-wol -u sunshine-tv-wake -b` should show "wake remembered" then "one-time auto-login". |
+| Moonlight still "offline" although Sunshine runs | Moonlight's Wake only waits ~15 s; press **Retry** (it then checks the encrypted port and goes online) |
 | PC still unlocked / in 4K after leaving the stream | You disconnected without quitting the app (see Security model). Quit from Moonlight, or run `sunshine-on-demand stop` (stops Sunshine + cleanup) |
 | Sunshine stopped during a stream | `journalctl --user -u sunshine-idle-stop` (it only stops after a disconnect + `IDLE_LIMIT`) |
 | Blocky picture | Moonlight bitrate too low (default can be ~10 Mbps) - set 50–80 Mbps (≤ 65 on 100 Mb/s TVs) |

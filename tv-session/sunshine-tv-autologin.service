@@ -7,7 +7,7 @@ After=local-fs.target
 [Service]
 Type=oneshot
 EnvironmentFile=/etc/sunshine-on-demand.env
-ExecStart=/usr/local/lib/sunshine-on-demand/sunshine-tv-autologin
+ExecStart=/usr/local/lib/sunshine-on-demand/sunshine-tv-autologin boot
 
 [Install]
 WantedBy=graphical.target

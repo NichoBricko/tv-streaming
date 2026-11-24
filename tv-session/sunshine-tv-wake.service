@@ -1,0 +1,7 @@
+[Unit]
+Description=One-time auto-login into the Sunshine TV session after a Moonlight Wake at the login screen
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/sunshine-on-demand.env
+ExecStart=/usr/local/lib/sunshine-on-demand/sunshine-tv-autologin wake

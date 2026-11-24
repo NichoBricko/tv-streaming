@@ -22,6 +22,7 @@ VARS=(WAYLAND_DISPLAY DISPLAY XAUTHORITY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XD
 log() { echo "sunshine-tv-session: $*"; logger -t sunshine-tv-session -- "$*" 2>/dev/null || true; }
 
 echo "${XDG_SESSION_ID:-}" > "$MARKER"
+rm -f /run/sunshine-on-demand/wake-pending 2>/dev/null || true   # this wake is handled
 dbus-update-activation-environment --systemd "${VARS[@]}" 2>/dev/null \
   || systemctl --user import-environment "${VARS[@]}"
 log "TV session started (session ${XDG_SESSION_ID:-?}); starting Sunshine and Steam Big Picture"

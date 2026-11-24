@@ -44,7 +44,7 @@ load_config() {
     die "WAKE_ON_LAN=yes needs a valid WOL_MAC (aa:bb:cc:dd:ee:ff) in config.env"
   fi
   SUNSHINE_FLATPAK=${SUNSHINE_FLATPAK:-no}
-  TV_SESSION=${TV_SESSION:-no}; TV_AUTOLOGIN=${TV_AUTOLOGIN:-wol}
+  TV_SESSION=${TV_SESSION:-no}; TV_AUTOLOGIN=${TV_AUTOLOGIN:-auto}
   TV_WAKE_TYPES=${TV_WAKE_TYPES:-LAN Remote,PCI PME#}
 }
 
@@ -393,21 +393,25 @@ install_tv_session() {
     sudo_run install -D -m 755 "$REPO/tv-session/$f" "$SYS_LIB/$f"
   done
   sudo_run install -D -m 644 "$REPO/tv-session/sunshine-tv.desktop" /usr/share/wayland-sessions/sunshine-tv.desktop
-  sudo_run install -m 644 "$REPO/tv-session/sunshine-tv-autologin.service" /etc/systemd/system/sunshine-tv-autologin.service
+  for f in sunshine-tv-autologin.service sunshine-tv-wake.path sunshine-tv-wake.service; do
+    sudo_run install -m 644 "$REPO/tv-session/$f" "/etc/systemd/system/$f"
+  done
   if [[ -e /etc/plasmalogin.conf && ! -e /etc/plasmalogin.conf.pre-sunshine-on-demand ]]; then
     sudo_run cp -p /etc/plasmalogin.conf /etc/plasmalogin.conf.pre-sunshine-on-demand
   fi
   sudo_run systemctl daemon-reload
   sudo_run systemctl enable sunshine-tv-autologin.service
-  info "auto-login mode: $TV_AUTOLOGIN (takes effect at the next boot)"
+  sudo_run systemctl enable --now sunshine-tv-wake.path
+  info "auto-login mode: $TV_AUTOLOGIN"
 }
 
 remove_tv_session() {
   say "Removing the TV session"
-  sudo_run systemctl disable sunshine-tv-autologin.service 2>/dev/null || true
+  sudo_run systemctl disable --now sunshine-tv-autologin.service sunshine-tv-wake.path 2>/dev/null || true
   # clear an auto-login this project set up
   if [[ -x $SYS_LIB/sunshine-tv-autologin ]]; then sudo_run env TV_AUTOLOGIN=no "$SYS_LIB/sunshine-tv-autologin"; fi
-  sudo_run rm -f /etc/systemd/system/sunshine-tv-autologin.service /usr/share/wayland-sessions/sunshine-tv.desktop \
+  sudo_run rm -f /etc/systemd/system/sunshine-tv-autologin.service /etc/systemd/system/sunshine-tv-wake.path \
+    /etc/systemd/system/sunshine-tv-wake.service /usr/share/wayland-sessions/sunshine-tv.desktop \
     "$SYS_LIB/sunshine-tv-session" "$SYS_LIB/sunshine-tv-session-inner" "$SYS_LIB/sunshine-tv-autologin"
   sudo_run systemctl daemon-reload
 }
@@ -462,7 +466,7 @@ cmd_status() {
     info "$s: $(systemctl --user is-enabled "$s" 2>/dev/null || true) / $(systemctl --user is-active "$s" 2>/dev/null || true)"
   done
   say "System units"
-  for s in sunshine-wol.socket sunshine-resume.service sunshine-tv-autologin.service; do
+  for s in sunshine-wol.socket sunshine-resume.service sunshine-tv-autologin.service sunshine-tv-wake.path; do
     info "$s: $(systemctl is-enabled "$s" 2>/dev/null || true) / $(systemctl is-active "$s" 2>/dev/null || true)"
   done
   if [[ -n ${NM_CONNECTION:-} ]] && has nmcli; then
@@ -472,7 +476,7 @@ cmd_status() {
   [[ -n $bin ]] && { say "Capabilities"; info "$(getcap "$bin" 2>/dev/null || true)"; }
   say "Last events"
   journalctl --user -t sunshine-tv-session -t sunshine-on-demand -t sunshine-session-lock -t sunshine-steam-reset -t sunshine-display-mode -n 6 --no-pager -o short 2>/dev/null | sed 's/^/   /'
-  journalctl -u sunshine-tv-autologin -b --no-pager -o cat 2>/dev/null | grep 'wake-up type' | sed 's/^/   /' || true
+  journalctl -u sunshine-tv-autologin -u sunshine-tv-wake -b --no-pager -o cat 2>/dev/null | grep -E 'wake-up type|wake:' | tail -4 | sed 's/^/   /' || true
   journalctl -u sunshine-wol -n 3 --no-pager -o cat 2>/dev/null | grep -v -e '^Starting' -e '^Finished' | sed 's/^/   /' || true
 }
 
