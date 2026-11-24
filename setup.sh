@@ -423,11 +423,11 @@ cmd_status() {
   info "active=$(systemctl --user is-active "$u" 2>/dev/null)  autostart=$(systemctl --user is-enabled "$u" 2>/dev/null)"
   say "User units"
   for s in sunshine-idle-stop.timer sunshine-stream-inhibit.service lgtv-devmode-extend.timer; do
-    info "$s: $(systemctl --user is-enabled "$s" 2>/dev/null || echo -) / $(systemctl --user is-active "$s" 2>/dev/null)"
+    info "$s: $(systemctl --user is-enabled "$s" 2>/dev/null || true) / $(systemctl --user is-active "$s" 2>/dev/null || true)"
   done
   say "System units"
   for s in sunshine-wol.socket sunshine-resume.service; do
-    info "$s: $(systemctl is-enabled "$s" 2>/dev/null || echo -) / $(systemctl is-active "$s" 2>/dev/null)"
+    info "$s: $(systemctl is-enabled "$s" 2>/dev/null || true) / $(systemctl is-active "$s" 2>/dev/null || true)"
   done
   if [[ -n ${NM_CONNECTION:-} ]] && has nmcli; then
     say "Wake-on-LAN"; info "$NM_CONNECTION: $(nmcli -g 802-3-ethernet.wake-on-lan connection show "$NM_CONNECTION" 2>/dev/null)"
