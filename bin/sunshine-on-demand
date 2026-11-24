@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sunshine-on-demand start|stop|status|cleanup
+# sunshine-on-demand start|stop|status|cleanup|login
 #
 # Start/stop the Sunshine user service by hand (menu entries, KDE Connect, ...).
 # When started this way it still stops itself after IDLE_LIMIT without a stream.
@@ -8,6 +8,11 @@
 # disconnected without quitting the app), Sunshine never ran the app's undo
 # steps - so restore the display, re-lock the session if the stream unlocked it,
 # reset Steam and release the sleep inhibitor here.
+#
+# "login" (sunshine-login.service, at graphical login): if Moonlight sent a Wake
+# while nobody was logged in (the PC booted to the login screen), the Wake
+# listener left /run/sunshine-on-demand/wake-pending - start Sunshine now so
+# Moonlight can connect as soon as you've logged in.
 
 set -u
 CONFIG=${SOD_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/sunshine-on-demand/config.env}
@@ -30,10 +35,22 @@ cleanup() {
   systemctl --user stop sunshine-stream-inhibit.service 2>/dev/null || true
 }
 
+login() {
+  local flag=/run/sunshine-on-demand/wake-pending age
+  [[ -e $flag ]] || return 0
+  age=$(( $(date +%s) - $(stat -c %Y "$flag") ))
+  rm -f "$flag" 2>/dev/null || true
+  if (( age <= ${WAKE_PENDING_MAX_AGE:-900} )); then
+    log "Wake arrived ${age}s ago before login; starting Sunshine"
+    systemctl --user start "$UNIT"
+  fi
+}
+
 case "${1:-status}" in
   start)   systemctl --user start "$UNIT" ;;
   stop)    systemctl --user stop "$UNIT"; cleanup ;;
   cleanup) cleanup ;;
+  login)   login ;;
   status)  systemctl --user --no-pager status "$UNIT" ;;
-  *) echo "usage: $0 start|stop|status|cleanup" >&2; exit 2 ;;
+  *) echo "usage: $0 start|stop|status|cleanup|login" >&2; exit 2 ;;
 esac

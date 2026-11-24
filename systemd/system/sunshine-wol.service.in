@@ -9,6 +9,9 @@ Environment=XDG_RUNTIME_DIR=/run/user/@UID@
 # WOL_MAC, CLIENT_IP, SUNSHINE_UNIT
 EnvironmentFile=/etc/sunshine-on-demand.env
 ExecStart=/usr/local/lib/sunshine-on-demand/sunshine-wol-handler.py
+# /run/sunshine-on-demand/wake-pending: a wake that arrived before login
+RuntimeDirectory=sunshine-on-demand
+RuntimeDirectoryPreserve=yes
 # The handler only reads the socket and calls systemctl --user
 NoNewPrivileges=yes
 ProtectSystem=strict

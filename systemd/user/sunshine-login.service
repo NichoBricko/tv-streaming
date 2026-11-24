@@ -1,0 +1,10 @@
+[Unit]
+Description=Start Sunshine at login if Moonlight sent a Wake before anyone was logged in
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/sunshine-on-demand login
+
+[Install]
+WantedBy=graphical-session.target

@@ -67,6 +67,15 @@ def main() -> int:
 
     result = subprocess.run(["systemctl", "--user", "start", "--no-block", unit],
                             capture_output=True, text=True)
+    if result.returncode != 0 and not os.path.exists(f"/run/user/{os.getuid()}/bus"):
+        # Nobody logged in yet (PC booted to the login screen): remember the
+        # wake; sunshine-login.service starts Sunshine right after login.
+        pending = os.path.join(os.environ.get("RUNTIME_DIRECTORY", "/run/sunshine-on-demand"),
+                               "wake-pending")
+        open(pending, "w").close()
+        os.utime(pending)
+        log(f"no user session yet; wake remembered in {pending}")
+        return 0
     if result.returncode != 0:
         log(f"failed to start {unit}: {result.stderr.strip()}")
         return 1
