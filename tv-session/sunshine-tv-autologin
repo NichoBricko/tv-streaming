@@ -7,6 +7,13 @@ Picture + Sunshine) when the PC was woken for streaming. Runs as root.
                                 Type" of this boot (type 1, offset 0x18). Many
                                 boards report "Power Switch" for every boot, so
                                 this alone is often not enough.
+  sunshine-tv-autologin client-check   (sunshine-tv-clientcheck.service, right
+                                after boot, alongside the login screen) - if the
+                                streaming client (CLIENT_IP, e.g. the TV) answers
+                                pings within TV_CLIENT_CHECK_SECONDS while nobody
+                                is logged in, the TV is on - someone pressed Wake
+                                in Moonlight - so do the one-time auto-login below.
+                                TV off -> nothing happens, normal login screen.
   sunshine-tv-autologin wake   (sunshine-tv-wake.path/.service) - the Wake
                                 listener received a magic packet from the client
                                 while nobody was logged in (the PC sits at the
@@ -15,8 +22,10 @@ Picture + Sunshine) when the PC was woken for streaming. Runs as root.
                                 the login screen, then remove the auto-login again.
 
 Settings (/etc/sunshine-on-demand.env):
-  TV_AUTOLOGIN   auto (default: boot check + wake trigger) | wol (boot check only)
-                 | on-wake (wake trigger only) | always (every boot) | no
+  TV_AUTOLOGIN   auto (default: client check + wake trigger + boot check)
+                 | on-wake (wake trigger only) | wol (boot check only)
+                 | always (every boot) | no
+  CLIENT_IP, TV_CLIENT_CHECK_SECONDS (default 60)
   TV_WAKE_TYPES  comma-separated wake types that count as Wake-on-LAN
                  (default "LAN Remote,PCI PME#")
   SOD_USER       user to log in
@@ -24,6 +33,7 @@ Settings (/etc/sunshine-on-demand.env):
 Only autologin entries this script created (Session=sunshine-tv) are ever
 removed, so an autologin you configured yourself is left alone.
 """
+import fcntl
 import json
 import os
 import re
@@ -36,6 +46,9 @@ WAKE_TYPES = {0: "Reserved", 1: "Other", 2: "Unknown", 3: "APM Timer", 4: "Modem
               5: "LAN Remote", 6: "Power Switch", 7: "PCI PME#", 8: "AC Power Restored"}
 PLASMALOGIN_CONF = "/etc/plasmalogin.conf"
 SDDM_DROPIN = "/etc/sddm.conf.d/zz-sunshine-tv-autologin.conf"
+LOCK = "/run/sunshine-tv-autologin.lock"       # one one-time auto-login at a time
+STAMP = "/run/sunshine-tv-autologin.last"      # when the last one ran
+MIN_GAP = 90                                   # seconds between two
 
 
 def log(msg):
@@ -125,6 +138,35 @@ def user_logged_in(user):
     return any(s.get("user") == user and s.get("class") == "user" for s in sessions)
 
 
+def one_time_autologin(dm, user, why):
+    """Log `user` into the TV session once: set auto-login, restart the login
+    screen (only called while nobody is logged in), remove the auto-login again."""
+    with open(LOCK, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)        # e.g. client-check and a Wake at the same time
+        try:
+            if time.time() - os.path.getmtime(STAMP) < MIN_GAP:
+                log(f"{why}: a TV login was just started; skipping")
+                return
+        except OSError:
+            pass
+        if user_logged_in(user):
+            log(f"{why}: {user} is already logged in; nothing to do")
+            return
+        log(f"{why}: nobody logged in - one-time auto-login of {user} into the TV session")
+        if apply(dm, user) is None:
+            return
+        open(STAMP, "w").close()
+        subprocess.run(["systemctl", "restart", "--no-block", "display-manager.service"], check=False)
+        time.sleep(20)                 # the login manager reads its config while starting
+        apply(dm, "")
+        log(f"{why}: one-time auto-login removed again")
+
+
+def client_reachable(ip):
+    return subprocess.run(["ping", "-c", "1", "-W", "1", ip],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+
 def main():
     action = sys.argv[1] if len(sys.argv) > 1 else "boot"
     mode = os.environ.get("TV_AUTOLOGIN", "auto")
@@ -137,13 +179,24 @@ def main():
         if user_logged_in(user):
             log(f"wake: {user} is already logged in; nothing to do")
             return 0
-        log(f"wake: nobody logged in - one-time auto-login of {user} into the TV session")
-        if apply(dm, user) is None:
+        one_time_autologin(dm, user, "wake")
+        return 0
+
+    if action == "client-check":
+        ip = os.environ.get("CLIENT_IP", "")
+        if mode != "auto" or not user or not ip:
             return 0
-        subprocess.run(["systemctl", "restart", "display-manager.service"], check=False)
-        time.sleep(20)                 # the login manager reads its config while starting
-        apply(dm, "")
-        log("wake: one-time auto-login removed again")
+        deadline = time.monotonic() + int(os.environ.get("TV_CLIENT_CHECK_SECONDS", "60"))
+        while time.monotonic() < deadline:
+            if user_logged_in(user):
+                log(f"client-check: {user} logged in; stopping")
+                return 0
+            if client_reachable(ip):
+                log(f"client-check: streaming client {ip} is on")
+                one_time_autologin(dm, user, "client-check")
+                return 0
+            time.sleep(2)
+        log(f"client-check: streaming client {ip} not reachable - normal login screen")
         return 0
 
     allowed = {t.strip() for t in os.environ.get("TV_WAKE_TYPES", "LAN Remote,PCI PME#").split(",")}

@@ -1,0 +1,13 @@
+[Unit]
+Description=Log into the Sunshine TV session if the streaming client (TV) is on at boot
+# Runs alongside the login screen (doesn't delay it); NetworkManager brings the
+# network up a few seconds after the login screen appears.
+After=display-manager.service NetworkManager.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/sunshine-on-demand.env
+ExecStart=/usr/local/lib/sunshine-on-demand/sunshine-tv-autologin client-check
+
+[Install]
+WantedBy=graphical.target
