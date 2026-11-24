@@ -1,0 +1,13 @@
+[Unit]
+Description=Auto-login into the Sunshine TV session when the PC was woken by Wake-on-LAN
+# Must decide before the login screen reads its configuration
+Before=display-manager.service
+After=local-fs.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/sunshine-on-demand.env
+ExecStart=/usr/local/lib/sunshine-on-demand/sunshine-tv-autologin
+
+[Install]
+WantedBy=graphical.target

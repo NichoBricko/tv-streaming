@@ -38,4 +38,10 @@ if (( idle >= IDLE_LIMIT )); then
   echo "Sunshine idle for ${idle}s (limit ${IDLE_LIMIT}s); stopping it."
   # also undoes what a stream left behind if Moonlight disconnected without quitting the app
   "$(dirname "$(readlink -f "$0")")/sunshine-on-demand" stop
+  # In the TV session (cold boot via Wake-on-LAN) put the PC back to sleep, so the
+  # next "Wake" from Moonlight resumes straight into the locked TV session.
+  if [[ -e ${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sunshine-tv-session && ${TV_SESSION_IDLE_ACTION:-suspend} == suspend ]]; then
+    logger -t sunshine-idle-stop "TV session idle; suspending the PC" 2>/dev/null || true
+    systemctl suspend
+  fi
 fi

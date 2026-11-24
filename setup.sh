@@ -44,6 +44,8 @@ load_config() {
     die "WAKE_ON_LAN=yes needs a valid WOL_MAC (aa:bb:cc:dd:ee:ff) in config.env"
   fi
   SUNSHINE_FLATPAK=${SUNSHINE_FLATPAK:-no}
+  TV_SESSION=${TV_SESSION:-no}; TV_AUTOLOGIN=${TV_AUTOLOGIN:-wol}
+  TV_WAKE_TYPES=${TV_WAKE_TYPES:-LAN Remote,PCI PME#}
 }
 
 # ------------------------------------------------------------------ detection
@@ -301,6 +303,7 @@ install_user() {
 
   say "User services"
   run systemctl --user daemon-reload
+  run systemctl --user enable sunshine-login.service
   if (( IDLE_LIMIT > 0 )); then run systemctl --user enable --now sunshine-idle-stop.timer
   else run systemctl --user disable --now sunshine-idle-stop.timer 2>/dev/null || true; fi
   if [[ $ON_DEMAND == yes ]]; then run systemctl --user disable "$SUNSHINE_UNIT" 2>/dev/null || true; info "Sunshine no longer starts at login"; fi
@@ -344,7 +347,8 @@ firewall_rules() {  # firewall_rules add|delete
 install_system() {
   say "System units (sudo)"
   local tmp; tmp=$(mktemp)
-  printf 'WOL_MAC=%s\nCLIENT_IP=%s\nSUNSHINE_UNIT=%s\n' "$WOL_MAC" "$CLIENT_IP" "$SUNSHINE_UNIT" > "$tmp"
+  printf 'WOL_MAC=%s\nCLIENT_IP=%s\nSUNSHINE_UNIT=%s\nSOD_USER=%s\nTV_AUTOLOGIN=%s\nTV_WAKE_TYPES="%s"\n' \
+    "$WOL_MAC" "$CLIENT_IP" "$SUNSHINE_UNIT" "$(id -un)" "$TV_AUTOLOGIN" "$TV_WAKE_TYPES" > "$tmp"
   sudo_run install -m 644 "$tmp" "$SYS_ENV"; rm -f "$tmp"
   sudo_run install -D -m 755 "$REPO/lib/sunshine-wol-handler.py" "$SYS_LIB/sunshine-wol-handler.py"
   sudo_run install -m 644 "$REPO/systemd/system/sunshine-wol.socket" /etc/systemd/system/sunshine-wol.socket
@@ -358,6 +362,8 @@ install_system() {
   else
     sudo_run systemctl disable --now sunshine-wol.socket sunshine-resume.service 2>/dev/null || true
   fi
+
+  install_tv_session
 
   say "Firewall ($FIREWALL): only $CLIENT_IP may reach Sunshine"
   firewall_rules add
@@ -374,6 +380,36 @@ install_system() {
   fi
   [[ $SETCAP == yes ]] && cmd_setcap
   return 0
+}
+
+install_tv_session() {
+  if [[ $TV_SESSION != yes ]]; then
+    if [[ -e /etc/systemd/system/sunshine-tv-autologin.service ]]; then remove_tv_session; fi
+    return 0
+  fi
+  say "TV session (cold boot via Wake-on-LAN -> locked Steam Big Picture kiosk)"
+  local f
+  for f in sunshine-tv-session sunshine-tv-session-inner sunshine-tv-autologin; do
+    sudo_run install -D -m 755 "$REPO/tv-session/$f" "$SYS_LIB/$f"
+  done
+  sudo_run install -D -m 644 "$REPO/tv-session/sunshine-tv.desktop" /usr/share/wayland-sessions/sunshine-tv.desktop
+  sudo_run install -m 644 "$REPO/tv-session/sunshine-tv-autologin.service" /etc/systemd/system/sunshine-tv-autologin.service
+  if [[ -e /etc/plasmalogin.conf && ! -e /etc/plasmalogin.conf.pre-sunshine-on-demand ]]; then
+    sudo_run cp -p /etc/plasmalogin.conf /etc/plasmalogin.conf.pre-sunshine-on-demand
+  fi
+  sudo_run systemctl daemon-reload
+  sudo_run systemctl enable sunshine-tv-autologin.service
+  info "auto-login mode: $TV_AUTOLOGIN (takes effect at the next boot)"
+}
+
+remove_tv_session() {
+  say "Removing the TV session"
+  sudo_run systemctl disable sunshine-tv-autologin.service 2>/dev/null || true
+  # clear an auto-login this project set up
+  if [[ -x $SYS_LIB/sunshine-tv-autologin ]]; then sudo_run env TV_AUTOLOGIN=no "$SYS_LIB/sunshine-tv-autologin"; fi
+  sudo_run rm -f /etc/systemd/system/sunshine-tv-autologin.service /usr/share/wayland-sessions/sunshine-tv.desktop \
+    "$SYS_LIB/sunshine-tv-session" "$SYS_LIB/sunshine-tv-session-inner" "$SYS_LIB/sunshine-tv-autologin"
+  sudo_run systemctl daemon-reload
 }
 
 cmd_setcap() {
@@ -422,11 +458,11 @@ cmd_status() {
   say "Sunshine ($u)"
   info "active=$(systemctl --user is-active "$u" 2>/dev/null)  autostart=$(systemctl --user is-enabled "$u" 2>/dev/null)"
   say "User units"
-  for s in sunshine-idle-stop.timer sunshine-stream-inhibit.service lgtv-devmode-extend.timer; do
+  for s in sunshine-idle-stop.timer sunshine-login.service sunshine-stream-inhibit.service lgtv-devmode-extend.timer; do
     info "$s: $(systemctl --user is-enabled "$s" 2>/dev/null || true) / $(systemctl --user is-active "$s" 2>/dev/null || true)"
   done
   say "System units"
-  for s in sunshine-wol.socket sunshine-resume.service; do
+  for s in sunshine-wol.socket sunshine-resume.service sunshine-tv-autologin.service; do
     info "$s: $(systemctl is-enabled "$s" 2>/dev/null || true) / $(systemctl is-active "$s" 2>/dev/null || true)"
   done
   if [[ -n ${NM_CONNECTION:-} ]] && has nmcli; then
@@ -435,7 +471,8 @@ cmd_status() {
   local bin; bin=$(readlink -f "$(command -v sunshine 2>/dev/null || true)" 2>/dev/null || true)
   [[ -n $bin ]] && { say "Capabilities"; info "$(getcap "$bin" 2>/dev/null || true)"; }
   say "Last events"
-  journalctl --user -t sunshine-on-demand -t sunshine-session-lock -t sunshine-steam-reset -t sunshine-display-mode -n 6 --no-pager -o short 2>/dev/null | sed 's/^/   /'
+  journalctl --user -t sunshine-tv-session -t sunshine-on-demand -t sunshine-session-lock -t sunshine-steam-reset -t sunshine-display-mode -n 6 --no-pager -o short 2>/dev/null | sed 's/^/   /'
+  journalctl -u sunshine-tv-autologin -b --no-pager -o cat 2>/dev/null | grep 'wake-up type' | sed 's/^/   /' || true
   journalctl -u sunshine-wol -n 3 --no-pager -o cat 2>/dev/null | grep -v -e '^Starting' -e '^Finished' | sed 's/^/   /' || true
 }
 
@@ -444,6 +481,7 @@ cmd_uninstall() {
   load_config
   say "User side"
   run systemctl --user disable --now sunshine-idle-stop.timer 2>/dev/null || true
+  run systemctl --user disable sunshine-login.service 2>/dev/null || true
   local f
   if [[ $DRY == no ]]; then "$BIN_DIR/sunshine-on-demand" cleanup 2>/dev/null || true; fi
   for f in "$REPO"/bin/*; do
@@ -460,6 +498,7 @@ cmd_uninstall() {
   info "Sunshine's own config was left in place (backups: $SUN_DIR/*.bak-*)."
   info "To start Sunshine at login again: systemctl --user enable $SUNSHINE_UNIT"
   say "System side (sudo)"
+  remove_tv_session
   sudo_run systemctl disable --now sunshine-wol.socket sunshine-resume.service 2>/dev/null || true
   sudo_run rm -f /etc/systemd/system/sunshine-wol.socket /etc/systemd/system/sunshine-wol.service \
     /etc/systemd/system/sunshine-resume.service "$SYS_ENV"

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Runs inside the locked KWin of the TV session (started by sunshine-tv-session).
+#
+#  - publishes the session's display to user services (Sunshine, kscreen, portals)
+#  - starts Sunshine
+#  - runs Steam Big Picture as the only application; the session ends when
+#    Steam exits (e.g. "Exit Steam" in the power menu)
+#
+# Nothing else is started: no Plasma shell, no XDG autostart, no
+# graphical-session.target user services. The session stays locked until a
+# paired Moonlight client starts a stream (sunshine-session-lock).
+
+set -u
+CONFIG=${SOD_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/sunshine-on-demand/config.env}
+# shellcheck source=/dev/null
+[[ -r $CONFIG ]] && . "$CONFIG"
+UNIT=${SUNSHINE_UNIT:-app-dev.lizardbyte.app.Sunshine.service}
+read -r -a STEAM <<< "${STEAM_CMD:-steam}"
+RUN=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+MARKER=$RUN/sunshine-tv-session
+VARS=(WAYLAND_DISPLAY DISPLAY XAUTHORITY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_ID)
+log() { echo "sunshine-tv-session: $*"; logger -t sunshine-tv-session -- "$*" 2>/dev/null || true; }
+
+echo "${XDG_SESSION_ID:-}" > "$MARKER"
+dbus-update-activation-environment --systemd "${VARS[@]}" 2>/dev/null \
+  || systemctl --user import-environment "${VARS[@]}"
+log "TV session started (session ${XDG_SESSION_ID:-?}); starting Sunshine and Steam Big Picture"
+systemctl --user start "$UNIT"
+
+"${STEAM[@]}" -gamepadui
+# The launcher can return while the client keeps running (restart after an update)
+while pgrep -x steam >/dev/null || pgrep -f 'com.valvesoftware.Steam' >/dev/null; do sleep 2; done
+
+log "Steam exited; ending the TV session"
+"$HOME/.local/bin/sunshine-on-demand" stop 2>/dev/null || systemctl --user stop "$UNIT"
+rm -f "$MARKER"
+systemctl --user unset-environment WAYLAND_DISPLAY DISPLAY XAUTHORITY 2>/dev/null || true

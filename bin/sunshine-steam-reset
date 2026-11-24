@@ -17,6 +17,13 @@ CONFIG=${SOD_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/sunshine-on-demand/config
 read -r -a STEAM <<< "${STEAM_CMD:-steam}"
 log() { echo "sunshine-steam-reset: $*"; logger -t sunshine-steam-reset -- "$*" 2>/dev/null || true; }
 
+# In the TV session Big Picture *is* the session: closing it or restarting Steam
+# would end the session. Nothing to do there.
+if [[ -e ${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sunshine-tv-session ]]; then
+  log "TV session: leaving Big Picture running"
+  exit 0
+fi
+
 steam_running() { pgrep -x steam >/dev/null || pgrep -f 'com.valvesoftware.Steam' >/dev/null; }
 
 sleep 2   # let the compositor finish the mode switch

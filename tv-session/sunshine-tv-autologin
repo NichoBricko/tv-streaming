@@ -1,0 +1,121 @@
+#!/usr/bin/python3 -I
+"""Decide at boot whether to auto-login into the TV session.
+
+Run as root by sunshine-tv-autologin.service before the display manager starts.
+Reads why the PC was switched on from the SMBIOS "Wake-up Type" (System
+Information, type 1, offset 0x18) and, when the boot was caused by Wake-on-LAN,
+configures the display manager to log TV_USER in automatically into the
+"sunshine-tv" session (locked kiosk with Steam Big Picture + Sunshine).
+Any other boot gets the normal login screen.
+
+Settings (/etc/sunshine-on-demand.env):
+  TV_AUTOLOGIN   wol (default) | always | no
+  TV_WAKE_TYPES  comma-separated wake types that count as Wake-on-LAN
+                 (default "LAN Remote,PCI PME#")
+  SOD_USER       user to log in
+
+Only autologin entries this script created (Session=sunshine-tv) are ever
+removed, so an autologin you configured yourself is left alone.
+"""
+import os
+import re
+import sys
+
+SESSION = "sunshine-tv"
+WAKE_TYPES = {0: "Reserved", 1: "Other", 2: "Unknown", 3: "APM Timer", 4: "Modem Ring",
+              5: "LAN Remote", 6: "Power Switch", 7: "PCI PME#", 8: "AC Power Restored"}
+PLASMALOGIN_CONF = "/etc/plasmalogin.conf"
+SDDM_DROPIN = "/etc/sddm.conf.d/zz-sunshine-tv-autologin.conf"
+
+
+def log(msg):
+    print(f"sunshine-tv-autologin: {msg}", flush=True)
+
+
+def wake_type():
+    try:
+        raw = open("/sys/firmware/dmi/entries/1-0/raw", "rb").read()
+    except OSError as e:
+        return f"unreadable ({e.strerror})"
+    if len(raw) <= 0x18 or raw[1] <= 0x18:
+        return "not reported"
+    return WAKE_TYPES.get(raw[0x18], f"0x{raw[0x18]:02x}")
+
+
+def display_manager():
+    try:
+        target = os.path.basename(os.path.realpath("/etc/systemd/system/display-manager.service"))
+    except OSError:
+        return ""
+    return target.removesuffix(".service")
+
+
+def set_plasmalogin(user):
+    """Set or clear [Autologin] User/Session in plasmalogin.conf (line-based, keeps the rest)."""
+    try:
+        lines = open(PLASMALOGIN_CONF).read().splitlines()
+    except FileNotFoundError:
+        lines = []
+    # locate the [Autologin] section
+    start = next((i for i, l in enumerate(lines) if l.strip() == "[Autologin]"), None)
+    if start is None:
+        if not user:
+            return False
+        lines += ["", "[Autologin]"]
+        start = len(lines) - 1
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("[")), len(lines))
+    section = lines[start + 1:end]
+    keys = {m.group(1): i for i, l in enumerate(section) if (m := re.match(r"\s*(\w+)\s*=", l))}
+    ours = any(re.fullmatch(rf"\s*Session\s*=\s*{SESSION}(\.desktop)?\s*", l) for l in section)
+    if user:
+        new = {"User": user, "Session": SESSION}
+        for k, v in new.items():
+            if k in keys:
+                section[keys[k]] = f"{k}={v}"
+            else:
+                section.append(f"{k}={v}")
+    else:
+        if not ours:
+            return False          # not our autologin - leave it
+        section = [l for l in section if not re.match(r"\s*User\s*=", l)]
+        section = [f"Session=plasma" if re.match(r"\s*Session\s*=", l) else l for l in section]
+    lines[start + 1:end] = section
+    open(PLASMALOGIN_CONF, "w").write("\n".join(lines) + "\n")
+    return True
+
+
+def set_sddm(user):
+    if user:
+        os.makedirs(os.path.dirname(SDDM_DROPIN), exist_ok=True)
+        open(SDDM_DROPIN, "w").write(f"# written by sunshine-tv-autologin at boot\n"
+                                     f"[Autologin]\nUser={user}\nSession={SESSION}\n")
+        return True
+    if os.path.exists(SDDM_DROPIN):
+        os.remove(SDDM_DROPIN)
+        return True
+    return False
+
+
+def main():
+    mode = os.environ.get("TV_AUTOLOGIN", "wol")
+    user = os.environ.get("SOD_USER", "")
+    allowed = {t.strip() for t in os.environ.get("TV_WAKE_TYPES", "LAN Remote,PCI PME#").split(",")}
+    wt = wake_type()
+    enable = bool(user) and (mode == "always" or (mode == "wol" and wt in allowed))
+    dm = display_manager()
+    log(f"wake-up type: {wt}; mode: {mode}; display manager: {dm or '?'} -> "
+        f"{'auto-login into the TV session' if enable else 'normal login screen'}")
+    if dm == "plasmalogin":
+        changed = set_plasmalogin(user if enable else "")
+    elif dm == "sddm":
+        changed = set_sddm(user if enable else "")
+    else:
+        log(f"display manager '{dm}' not supported for automatic TV login; skipping")
+        return 0
+    if changed:
+        log("display manager config updated")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Steam TV (Sunshine streaming)
+Comment=Locked kiosk session with only Steam Big Picture and Sunshine, for streaming to the TV
+Exec=/usr/local/lib/sunshine-on-demand/sunshine-tv-session
+DesktopNames=KDE
+X-KDE-PluginInfo-Version=1
