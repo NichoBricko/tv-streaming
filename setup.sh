@@ -216,12 +216,12 @@ configure_sunshine_conf() {
   local enc=""; [[ $REQUIRE_ENCRYPTION == yes ]] && enc=2
   local web=""; [[ $WEB_UI_LOCAL_ONLY == yes ]] && web=pc
   if [[ $DRY == yes ]]; then
-    info "[dry-run] sunshine.conf: keyboard=$kbm mouse=$kbm controller=$ctrl lan_encryption_mode=${enc:-default} origin_web_ui_allowed=${web:-default} encoder=${SUNSHINE_ENCODER:-auto} capture=${SUNSHINE_CAPTURE:-auto} adapter_name=${SUNSHINE_ADAPTER:-auto}"
+    info "[dry-run] sunshine.conf: keyboard=$kbm mouse=$kbm controller=$ctrl lan_encryption_mode=${enc:-default} origin_web_ui_allowed=${web:-default} encoder=${SUNSHINE_ENCODER:-auto} capture=${SUNSHINE_CAPTURE:-auto} adapter_name=${SUNSHINE_ADAPTER:-auto} min_log_level=${SUNSHINE_LOG_LEVEL:-default}"
     return
   fi
   python3 -I - "$f" keyboard="$kbm" mouse="$kbm" controller="$ctrl" lan_encryption_mode="$enc" \
     origin_web_ui_allowed="$web" encoder="${SUNSHINE_ENCODER:-}" capture="${SUNSHINE_CAPTURE:-}" \
-    adapter_name="${SUNSHINE_ADAPTER:-}" <<'EOF'
+    adapter_name="${SUNSHINE_ADAPTER:-}" min_log_level="${SUNSHINE_LOG_LEVEL:-}" <<'EOF'
 import re, sys
 path, pairs = sys.argv[1], [a.split("=", 1) for a in sys.argv[2:]]
 lines = open(path).read().splitlines()
