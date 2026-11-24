@@ -1,0 +1,32 @@
+{
+  "name": "sunshine-on-demand",
+  "version": "1.0.0",
+  "description": "Set up couch game streaming from your PC to your TV with Sunshine + Moonlight: one Wake press on the TV starts everything (even from power-off), the PC stays locked and secured, and Sunshine only runs while you play. Guides installation for your PC and TV and troubleshoots it.",
+  "author": {
+    "name": "NichoBricko",
+    "url": "https://github.com/NichoBricko"
+  },
+  "homepage": "https://github.com/NichoBricko/tv-streaming",
+  "repository": "https://github.com/NichoBricko/tv-streaming",
+  "license": "MIT",
+  "keywords": [
+    "sunshine",
+    "moonlight",
+    "game-streaming",
+    "wake-on-lan",
+    "tv",
+    "steam",
+    "linux",
+    "kde"
+  ],
+  "icon": ".claude-plugin/icon.png",
+  "network": {
+    "hosts": [
+      "github.com",
+      "objects.githubusercontent.com",
+      "api.github.com",
+      "developer.lge.com",
+      "registry.npmjs.org"
+    ]
+  }
+}

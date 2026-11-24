@@ -1,0 +1,15 @@
+{
+  "name": "nichobricko",
+  "description": "NichoBricko's Claude Code plugins: couch game streaming PC \u2192 TV with Sunshine + Moonlight.",
+  "owner": {
+    "name": "NichoBricko",
+    "url": "https://github.com/NichoBricko"
+  },
+  "plugins": [
+    {
+      "name": "sunshine-on-demand",
+      "source": "./",
+      "description": "Couch game streaming PC \u2192 TV with Sunshine + Moonlight: one-press Wake, locked TV session, on-demand Sunshine. Guided setup + troubleshooting."
+    }
+  ]
+}
