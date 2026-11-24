@@ -1,0 +1,10 @@
+[Unit]
+Description=Listen for Moonlight "Wake PC" packets (Wake-on-LAN, UDP 9)
+
+[Socket]
+ListenDatagram=0.0.0.0:9
+# The handler reads all pending packets per activation
+Accept=no
+
+[Install]
+WantedBy=sockets.target

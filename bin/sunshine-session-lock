@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# sunshine-session-lock unlock|relock
+#
+# Sunshine prep command: unlock the desktop session when a stream starts, and
+# lock it again when the stream ends.
+#
+#   unlock  only acts if the session is locked (e.g. Moonlight woke the PC from
+#           sleep) and leaves a marker in $XDG_RUNTIME_DIR
+#   relock  only locks again if that marker exists, so a stream started while
+#           you were already using the PC never locks you out afterwards
+#
+# The session is only unlocked when a paired, PIN-verified Moonlight client
+# actually starts an (encrypted) stream - a Wake packet alone unlocks nothing.
+# Works with lock screens that follow logind (KDE Plasma, GNOME).
+
+set -u
+MARKER="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sunshine-unlocked-session"
+log() { echo "sunshine-session-lock: $*"; logger -t sunshine-session-lock -- "$*" 2>/dev/null || true; }
+
+session=$(loginctl show-user "$(id -un)" -p Display --value 2>/dev/null)
+if [[ -z $session ]]; then
+  log "no graphical session found; nothing to do"
+  exit 0
+fi
+
+case "${1:-}" in
+  unlock)
+    if [[ $(loginctl show-session "$session" -p LockedHint --value) == yes ]]; then
+      loginctl unlock-session "$session" && touch "$MARKER"
+      log "session $session was locked; unlocked for the stream"
+    else
+      rm -f "$MARKER"
+      log "session $session already unlocked; will not re-lock afterwards"
+    fi
+    ;;
+  relock)
+    if [[ -e $MARKER ]]; then
+      rm -f "$MARKER"
+      loginctl lock-session "$session"
+      log "stream ended; session $session locked again"
+    else
+      log "session was not unlocked by the stream; leaving it as is"
+    fi
+    ;;
+  *)
+    echo "usage: $0 unlock|relock" >&2
+    exit 2
+    ;;
+esac

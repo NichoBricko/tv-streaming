@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# sunshine-display-mode stream|restore
+#
+# Sunshine prep command: switch the PC's display to the stream resolution when a
+# stream starts, and back to the previous mode when it ends.
+#
+#   stream   remembers the current mode, then sets STREAM_MODE ("client" = the
+#            resolution/fps Moonlight requested: SUNSHINE_CLIENT_WIDTH/HEIGHT/FPS)
+#   restore  sets the remembered mode (or RESTORE_MODE from the config)
+#
+# Backends: kscreen (KDE), xrandr (X11), wlr-randr (wlroots), custom, none.
+
+set -u
+CONFIG=${SOD_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/sunshine-on-demand/config.env}
+# shellcheck source=/dev/null
+[[ -r $CONFIG ]] && . "$CONFIG"
+BACKEND=${DISPLAY_BACKEND:-none}
+OUT=${DISPLAY_OUTPUT:-}
+STATE="${XDG_RUNTIME_DIR:-/tmp}/sunshine-display-mode.prev"
+log() { echo "sunshine-display-mode: $*"; logger -t sunshine-display-mode -- "$*" 2>/dev/null || true; }
+
+# Print the output's current mode as WxH@R (refresh rounded to an integer)
+current_mode() {
+  case $BACKEND in
+    kscreen)
+      kscreen-doctor -j 2>/dev/null | python3 -I -c '
+import json, sys
+out = sys.argv[1]
+for o in json.load(sys.stdin)["outputs"]:
+    if o["name"] == out:
+        m = {x["id"]: x for x in o["modes"]}[o["currentModeId"]]
+        print("%dx%d@%d" % (m["size"]["width"], m["size"]["height"], round(m["refreshRate"])))' "$OUT" ;;
+    xrandr)
+      xrandr --query 2>/dev/null | awk -v o="$OUT" '
+        $1==o {f=1; next} f && /^[^ ]/ {f=0}
+        f && /\*/ {for(i=2;i<=NF;i++) if($i ~ /\*/){r=$i; gsub(/[*+]/,"",r); printf "%s@%d\n",$1,r+0.5; exit}}' ;;
+    wlr-randr)
+      wlr-randr --json 2>/dev/null | python3 -I -c '
+import json, sys
+for o in json.load(sys.stdin):
+    if o["name"] == sys.argv[1]:
+        for m in o["modes"]:
+            if m.get("current"):
+                print("%dx%d@%d" % (m["width"], m["height"], round(m["refresh"])))' "$OUT" ;;
+    *) ;;
+  esac
+}
+
+# Set WxH@R on the output
+set_mode() {
+  local mode=$1 w h r
+  w=${mode%%x*}; h=${mode#*x}; h=${h%@*}; r=${mode#*@}
+  case $BACKEND in
+    kscreen)   kscreen-doctor "output.$OUT.mode.${w}x${h}@${r}" >/dev/null ;;
+    xrandr)    xrandr --output "$OUT" --mode "${w}x${h}" --rate "$r" ;;
+    wlr-randr) wlr-randr --output "$OUT" --mode "${w}x${h}@${r}" ;;
+    custom)
+      local tmpl=$2 cmd
+      [[ -n $tmpl ]] || { log "custom backend but no command configured"; return 1; }
+      cmd=${tmpl//\{W\}/$w}; cmd=${cmd//\{H\}/$h}; cmd=${cmd//\{R\}/$r}
+      sh -c "$cmd" ;;
+    none) return 0 ;;
+    *) log "unknown DISPLAY_BACKEND '$BACKEND'"; return 1 ;;
+  esac
+}
+
+case "${1:-}" in
+  stream)
+    [[ $BACKEND == none ]] && exit 0
+    prev=$(current_mode)
+    [[ -n $prev ]] && printf '%s\n' "$prev" > "$STATE"
+    if [[ ${STREAM_MODE:-client} == client && -n ${SUNSHINE_CLIENT_WIDTH:-} ]]; then
+      want="${SUNSHINE_CLIENT_WIDTH}x${SUNSHINE_CLIENT_HEIGHT}@${SUNSHINE_CLIENT_FPS:-60}"
+    else
+      want=${STREAM_MODE/client/${STREAM_MODE_FALLBACK:-}}
+    fi
+    if set_mode "$want" "${DISPLAY_SET_CMD:-}"; then
+      log "switched $OUT to $want (was ${prev:-unknown})"
+    elif [[ -n ${STREAM_MODE_FALLBACK:-} && $want != "$STREAM_MODE_FALLBACK" ]] \
+         && set_mode "$STREAM_MODE_FALLBACK" "${DISPLAY_SET_CMD:-}"; then
+      log "$want not supported; switched $OUT to fallback $STREAM_MODE_FALLBACK"
+    else
+      log "could not switch $OUT to $want"
+    fi
+    ;;
+  restore)
+    [[ $BACKEND == none ]] && exit 0
+    mode=$(cat "$STATE" 2>/dev/null); rm -f "$STATE"
+    mode=${mode:-${RESTORE_MODE:-}}
+    [[ -n $mode ]] || { log "no mode to restore"; exit 0; }
+    tmpl=${DISPLAY_RESTORE_CMD:-${DISPLAY_SET_CMD:-}}
+    if set_mode "$mode" "$tmpl"; then log "restored $OUT to $mode"; else log "could not restore $OUT to $mode"; fi
+    ;;
+  current) current_mode ;;
+  *) echo "usage: $0 stream|restore|current" >&2; exit 2 ;;
+esac

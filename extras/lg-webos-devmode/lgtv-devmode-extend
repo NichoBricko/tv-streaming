@@ -6,8 +6,9 @@
 # A private copy is kept here so renewal also works while the TV is off.
 
 set -u
-ARES=~/.local/bin/ares-novacom
-DEVICE=lgtv
+ARES=$(command -v ares-novacom || echo ~/.local/bin/ares-novacom)
+# Device name registered with ares-setup-device (override: LGTV_DEVICE=mytv)
+DEVICE=${LGTV_DEVICE:-lgtv}
 STATE_DIR=~/.config/lgtv-devmode
 TOKEN_FILE=$STATE_DIR/token
 API=https://developer.lge.com/secure

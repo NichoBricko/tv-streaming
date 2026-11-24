@@ -1,0 +1,6 @@
+[Unit]
+Description=Stop Sunshine when no stream has been connected for IDLE_LIMIT seconds
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/sunshine-idle-stop

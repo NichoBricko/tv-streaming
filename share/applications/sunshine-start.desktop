@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Sunshine: start streaming host
+Comment=Start Sunshine so Moonlight on the TV can connect (stops itself again when idle)
+Exec=@BIN@/sunshine-on-demand start
+Icon=dev.lizardbyte.app.Sunshine
+Terminal=false
+Categories=Game;

@@ -1,0 +1,6 @@
+[Unit]
+Description=Keep the PC awake while streaming to the TV
+
+[Service]
+# Started/stopped by the "Steam Big Picture" prep commands in Sunshine's apps.json
+ExecStart=/usr/bin/systemd-inhibit --what=sleep:idle --mode=block --who=Sunshine --why="Streaming to TV" /usr/bin/sleep infinity

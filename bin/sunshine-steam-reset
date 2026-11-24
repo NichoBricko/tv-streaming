@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Sunshine prep (undo) command, run after the display is back at its normal mode.
+#
+# Closes Big Picture and restarts the Steam client minimized to the tray.
+# Steam stores its interface scale (AutoScaleFactor) while the screen is in the
+# stream resolution and only recalculates it on restart, so without this its
+# window stays sized/scaled for 4K on a 1080p monitor.
+#
+# Skipped while a game is still running (a Steam game, or any Wine/Proton game
+# such as one launched from Heroic or Lutris) so nothing you keep playing on the
+# PC is killed.
+
+set -u
+CONFIG=${SOD_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/sunshine-on-demand/config.env}
+# shellcheck source=/dev/null
+[[ -r $CONFIG ]] && . "$CONFIG"
+read -r -a STEAM <<< "${STEAM_CMD:-steam}"
+log() { echo "sunshine-steam-reset: $*"; logger -t sunshine-steam-reset -- "$*" 2>/dev/null || true; }
+
+steam_running() { pgrep -x steam >/dev/null || pgrep -f 'com.valvesoftware.Steam' >/dev/null; }
+
+sleep 2   # let the compositor finish the mode switch
+setsid "${STEAM[@]}" steam://close/bigpicture >/dev/null 2>&1 < /dev/null &
+
+if [[ ${STEAM_RESET:-yes} != yes ]]; then
+  log "closed Big Picture (Steam restart disabled in config)"
+  exit 0
+fi
+if pgrep -f '/reaper SteamLaunch' >/dev/null || pgrep -x wineserver >/dev/null; then
+  log "a game is still running; closed Big Picture but left Steam running"
+  exit 0
+fi
+if ! steam_running; then
+  log "Steam not running; nothing to reset"
+  exit 0
+fi
+
+log "restarting Steam so it lays out for the normal display mode"
+"${STEAM[@]}" -shutdown >/dev/null 2>&1
+for _ in $(seq 1 30); do          # wait up to 30 s for a clean exit
+  steam_running || break
+  sleep 1
+done
+if steam_running; then
+  log "Steam did not exit in time; leaving it alone"
+  exit 1
+fi
+setsid "${STEAM[@]}" -silent >/dev/null 2>&1 < /dev/null &
+log "Steam restarted (minimized to tray)"

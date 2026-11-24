@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# sunshine-on-demand start|stop|status|cleanup
+#
+# Start/stop the Sunshine user service by hand (menu entries, KDE Connect, ...).
+# When started this way it still stops itself after IDLE_LIMIT without a stream.
+#
+# "stop" also runs "cleanup": if a stream app was still running (Moonlight
+# disconnected without quitting the app), Sunshine never ran the app's undo
+# steps - so restore the display, re-lock the session if the stream unlocked it,
+# reset Steam and release the sleep inhibitor here.
+
+set -u
+CONFIG=${SOD_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/sunshine-on-demand/config.env}
+# shellcheck source=/dev/null
+[[ -r $CONFIG ]] && . "$CONFIG"
+UNIT=${SUNSHINE_UNIT:-app-dev.lizardbyte.app.Sunshine.service}
+BIN=$(dirname "$(readlink -f "$0")")
+RUN=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+log() { echo "sunshine-on-demand: $*"; logger -t sunshine-on-demand -- "$*" 2>/dev/null || true; }
+
+cleanup() {
+  local left=no
+  [[ -e $RUN/sunshine-display-mode.prev || -e $RUN/sunshine-unlocked-session ]] && left=yes
+  systemctl --user is-active --quiet sunshine-stream-inhibit.service && left=yes
+  [[ $left == yes ]] || return 0
+  log "a stream app was still active; undoing its changes"
+  [[ -e $RUN/sunshine-display-mode.prev ]] && "$BIN/sunshine-display-mode" restore
+  if [[ ${APP_OPEN_CMD:-} == *bigpicture* ]]; then "$BIN/sunshine-steam-reset"; fi
+  "$BIN/sunshine-session-lock" relock
+  systemctl --user stop sunshine-stream-inhibit.service 2>/dev/null || true
+}
+
+case "${1:-status}" in
+  start)   systemctl --user start "$UNIT" ;;
+  stop)    systemctl --user stop "$UNIT"; cleanup ;;
+  cleanup) cleanup ;;
+  status)  systemctl --user --no-pager status "$UNIT" ;;
+  *) echo "usage: $0 start|stop|status|cleanup" >&2; exit 2 ;;
+esac

@@ -1,0 +1,17 @@
+[Unit]
+Description=Start Sunshine when the streaming client sends a Wake-on-LAN packet
+Requires=sunshine-wol.socket
+
+[Service]
+Type=oneshot
+User=@USER@
+Environment=XDG_RUNTIME_DIR=/run/user/@UID@
+# WOL_MAC, CLIENT_IP, SUNSHINE_UNIT
+EnvironmentFile=/etc/sunshine-on-demand.env
+ExecStart=/usr/local/lib/sunshine-on-demand/sunshine-wol-handler.py
+# The handler only reads the socket and calls systemctl --user
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+RestrictAddressFamilies=AF_INET AF_UNIX

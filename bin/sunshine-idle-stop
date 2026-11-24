@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Stop Sunshine when nobody is streaming.
+#
+# Run every minute by sunshine-idle-stop.timer. Reads Sunshine's own log since
+# it last started:
+#   - last event "CLIENT CONNECTED"     -> a stream is active, keep running
+#   - last event "CLIENT DISCONNECTED"  -> idle since that moment
+#   - no client event yet               -> idle since Sunshine started
+# Stops Sunshine once it has been idle for IDLE_LIMIT seconds (config, default 600).
+
+set -u
+CONFIG=${SOD_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/sunshine-on-demand/config.env}
+# shellcheck source=/dev/null
+[[ -r $CONFIG ]] && . "$CONFIG"
+UNIT=${SUNSHINE_UNIT:-app-dev.lizardbyte.app.Sunshine.service}
+IDLE_LIMIT=${IDLE_LIMIT:-600}
+(( IDLE_LIMIT > 0 )) || exit 0
+
+systemctl --user is-active --quiet "$UNIT" || exit 0
+
+# Start of the current Sunshine run (epoch seconds)
+start_s=$(date -d "$(systemctl --user show -p ActiveEnterTimestamp --value "$UNIT")" +%s 2>/dev/null) || exit 0
+
+# Last connect/disconnect event since that start (journal time, epoch seconds)
+last=$(journalctl --user -u "$UNIT" --since "@$start_s" -o short-unix --no-pager 2>/dev/null \
+       | grep -E 'CLIENT (CONNECTED|DISCONNECTED)' | tail -1)
+
+if [[ $last == *"CLIENT CONNECTED"* ]]; then
+  exit 0                                    # stream in progress
+elif [[ $last == *"CLIENT DISCONNECTED"* ]]; then
+  idle_since=${last%%.*}                    # leading epoch seconds
+else
+  idle_since=$start_s                       # nobody connected yet
+fi
+
+idle=$(( $(date +%s) - idle_since ))
+if (( idle >= IDLE_LIMIT )); then
+  echo "Sunshine idle for ${idle}s (limit ${IDLE_LIMIT}s); stopping it."
+  # also undoes what a stream left behind if Moonlight disconnected without quitting the app
+  "$(dirname "$(readlink -f "$0")")/sunshine-on-demand" stop
+fi

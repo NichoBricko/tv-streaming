@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Sunshine: stop streaming host
+Comment=Stop Sunshine now (ends any running stream)
+Exec=@BIN@/sunshine-on-demand stop
+Icon=dev.lizardbyte.app.Sunshine
+Terminal=false
+Categories=Game;

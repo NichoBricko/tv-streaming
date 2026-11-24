@@ -1,0 +1,14 @@
+[Unit]
+Description=Start Sunshine after the PC resumes from sleep (e.g. woken by Moonlight)
+After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+
+[Service]
+Type=oneshot
+User=@USER@
+Environment=XDG_RUNTIME_DIR=/run/user/@UID@
+EnvironmentFile=/etc/sunshine-on-demand.env
+# sunshine-idle-stop shuts it off again if no stream connects
+ExecStart=/bin/sh -c 'exec systemctl --user start --no-block "$SUNSHINE_UNIT"'
+
+[Install]
+WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
