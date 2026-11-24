@@ -1,213 +1,128 @@
+<p align="center"><img src="assets/icon.svg" width="120" alt=""></p>
+
 # sunshine-on-demand
 
-**Stream your Linux gaming PC to the TV with [Sunshine](https://github.com/LizardByte/Sunshine) + [Moonlight](https://moonlight-stream.org), with Sunshine only running when you actually play.**
+**Couch gaming from your PC on your TV: press Wake on the TV, play.**
 
-Pick up the TV remote, open Moonlight, press **Wake**. The PC wakes up (or just starts Sunshine if it's already on), unlocks for the stream, switches its display to 4K and opens Steam Big Picture. When you quit, everything goes back: normal resolution, Steam resized, screen locked again if it was locked, and Sunshine shuts itself off 10 minutes later.
+Built on [Sunshine](https://github.com/LizardByte/Sunshine) + [Moonlight](https://moonlight-stream.org). One press of **Wake** in Moonlight wakes the PC, even from **power-off**. The PC comes up in a locked, silent "TV session", the stream unlocks it, switches the display to 4K and opens Steam Big Picture. When you're done, everything is put back and locked again. Sunshine only runs while you play, and the firewall only lets your TV in.
 
-## What it does
-| Feature | How |
+## How it works
+```mermaid
+flowchart LR
+    subgraph TV["📺 TV / streaming box"]
+        ML["Moonlight"]
+    end
+    subgraph PC["🖥️ Linux PC"]
+        WOL["Wake listener<br/>(UDP 9, TV's IP only)"]
+        CHK["TV check at boot<br/>(TV on? → TV session)"]
+        TVS["🔒 TV session<br/>locked, silent"]
+        SUN["Sunshine<br/>(on demand, idle stop)"]
+        HLP["Stream helpers<br/>unlock · 4K · relock · Steam fix"]
+        BP["🎮 Steam Big Picture"]
+    end
+    ML -- "Wake (magic packet)" --> WOL
+    ML -. "powers on / wakes PC" .-> CHK
+    CHK --> TVS
+    WOL --> SUN
+    TVS --> SUN
+    ML <== "encrypted 4K60 HEVC stream" ==> SUN
+    SUN --> HLP --> BP
+```
+
+<details>
+<summary><b>One press from power-off, step by step</b></summary>
+
+```mermaid
+sequenceDiagram
+    actor You
+    participant TV as Moonlight (TV)
+    participant PC as PC
+    participant S as Sunshine
+    You->>TV: press Wake
+    TV->>PC: Wake-on-LAN magic packet
+    Note over PC: boots, login screen appears (~6 s)
+    PC->>TV: ping - is the TV on?
+    TV-->>PC: yes
+    Note over PC: one-time auto-login into the<br/>TV session, locked at once (~13 s)
+    PC->>S: start Sunshine
+    S-->>TV: announces itself - PC shows as online
+    You->>TV: open Steam Big Picture
+    TV->>S: start stream
+    Note over PC: unlock · switch to 4K · start Steam
+    You->>TV: quit when done
+    Note over PC: restore display · lock again
+    Note over PC: idle 10 min → Sunshine stops, PC sleeps
+```
+</details>
+
+## Works with
+| | Status |
 |---|---|
-| **Sunshine on demand** | Not started at login. Started by Moonlight's **Wake PC** button (a Wake-on-LAN listener on UDP 9), after resume from sleep, or from the app menu. |
-| **Wake from sleep** | Moonlight's Wake-on-LAN packet wakes the PC; a resume hook starts Sunshine |
-| **Auto stop** | Sunshine stops after `IDLE_LIMIT` (default 10 min) without a connected stream |
-| **Unlock for the stream** | If the PC is locked (e.g. it was asleep), the session is unlocked when a **paired** client starts a stream, and locked again afterwards. If you were already logged in, it is left alone. |
-| **Display switching** | The PC's display switches to the client's resolution/fps and back to the previous mode afterwards (KDE, X11, wlroots; GNOME via your own command) |
-| **Steam fix-up** | Steam is restarted minimized after the stream, so it doesn't keep its 4K layout on a 1080p monitor. Skipped while a game is still running. |
-| **No sleep mid-game** | A `systemd-inhibit` lock is held while streaming (controller input doesn't count as desktop activity) |
-| **Locked down** | Only one app (Steam Big Picture) is offered; keyboard/mouse (optionally also controller) input from the TV is blocked; stream encryption required; web UI local-only; firewall open **only** to the TV's IP |
+| **Linux + KDE Plasma 6** | ✅ everything, tested ([reference setup](docs/reference-setup.md)) |
+| Linux + GNOME / Sway / Hyprland / X11 | 🟡 everything except the cold-boot TV session (needs KDE's KWin); untested |
+| Windows 10/11 | 🛠 guided, experimental ([docs/windows.md](docs/windows.md)) |
+| macOS | ❌ (Sunshine on macOS has no gamepad support) |
+| **TVs:** Android/Google TV, Nvidia Shield, LG webOS, Samsung Tizen, Apple TV, Fire TV (Fire OS) | ✅ / 🟡 see [docs/tv-clients.md](docs/tv-clients.md) |
+| Hisense VIDAA, Roku, Fire TV on Vega OS | ❌ no Moonlight app: use a streaming box |
 
-Optional extras: [Moonlight on LG webOS TVs](extras/lg-webos-devmode/README.md) (with automatic Developer Mode renewal) and [RDR2 (Epic) via Heroic fixes](extras/rdr2-epic-heroic/README.md).
+**You need:** the PC on **Ethernet**, a Moonlight-capable TV or box, and Wake-on-LAN enabled in the PC's BIOS. Full matrix: [docs/compatibility.md](docs/compatibility.md).
+
+## Install with Claude Code (recommended)
+In [Claude Code](https://claude.com/claude-code) on the gaming PC:
 
 ```
- TV / streaming box                         Linux PC
- ┌──────────────┐  "Wake PC" (UDP 9)   ┌─────────────────────────────────────────┐
- │  Moonlight   │ ───────────────────► │ sunshine-wol.socket → start Sunshine    │
- │              │                      │ (asleep? NIC wakes PC → sunshine-resume) │
- │              │ ◄══ 4K60 HEVC ══════ │ Sunshine ─ prep: inhibit sleep, unlock,  │
- │              │     (encrypted)      │          display → 4K, Big Picture       │
- └──────────────┘                      │ stream ends → restore, Steam reset, lock │
-                                       │ idle 10 min → sunshine-idle-stop         │
-                                       └─────────────────────────────────────────┘
+/plugin install sunshine-on-demand --marketplace NichoBricko/tv-streaming
+/sunshine-on-demand:setup
 ```
 
-## Requirements
-- Linux with **systemd** and a graphical session; the installer targets **KDE Plasma** best (fully tested), with GNOME, wlroots compositors and X11 supported (see [Desktop support](#desktop-support)).
-- **Sunshine** installed (see below) and a **Moonlight** client on the TV ([which client for your TV](docs/tv-clients.md)).
-- **Wired Ethernet** on the PC for Wake-on-LAN (Wi-Fi WoL rarely works), ideally on the TV too.
-- Python 3, `loginctl`, `logger`, NetworkManager (for automatic WoL setup; others: see below).
+Claude:
+- asks about your TV and controller, and checks your PC;
+- tells you what will work on your setup;
+- installs everything and installs Moonlight on your TV where it can (Android TV/Fire TV via adb, LG via Developer Mode);
+- pairs it and tests it with you.
 
-## Quick start
-```bash
-# 1. Install Sunshine for your distro (table below) and check it runs:
-systemctl --user start app-dev.lizardbyte.app.Sunshine.service || systemctl --user start sunshine.service
+You'll be asked to run the few commands that need your password in your own terminal.
 
-# 2. Get this repo
-git clone <this repo> ~/sunshine-on-demand && cd ~/sunshine-on-demand
+<sub>Older Claude Code: `/plugin marketplace add NichoBricko/tv-streaming`, then `/plugin install sunshine-on-demand@nichobricko`. Problems later: `/sunshine-on-demand:troubleshoot`.</sub>
 
-# 3. Detect your PC and write config.env (give the TV/box a fixed IP in your router first)
-./setup.sh configure --client-ip 192.168.1.50
-$EDITOR config.env          # review: display output, controller, app, firewall ...
+## Install manually (Linux)
+1. Install Sunshine ([per distro](docs/linux.md#1-install-sunshine)), and give your TV a fixed IP in your router.
+2. Configure and install:
+   ```bash
+   git clone https://github.com/NichoBricko/tv-streaming ~/.local/share/sunshine-on-demand && cd ~/.local/share/sunshine-on-demand
+   ./setup.sh configure --client-ip <TV IP>     # detects your PC, writes config.env - review it
+   ./setup.sh install                           # asks for sudo for the system part
+   ```
+3. Enable Wake-on-LAN in your BIOS ([vendor table](docs/linux.md#3-wake-on-lan-in-the-biosuefi)).
+4. Install Moonlight on the TV ([per TV](docs/tv-clients.md)) and pair it: `sunshine-on-demand start`, open https://localhost:47990, and enter the PIN.
 
-# 4. Preview, then install (the system part asks for sudo - run in a normal terminal)
-./setup.sh install --dry-run
-./setup.sh install
-
-# 5. Enable Wake-on-LAN in your BIOS/UEFI (table below), then pair Moonlight:
-sunshine-on-demand start    # open https://localhost:47990, create a login, enter the PIN Moonlight shows
-./setup.sh status
-```
-Changed `config.env` later? Run `./setup.sh install` again (it's idempotent). Several TVs/configs: `SOD_SETUP_CONFIG=other.env ./setup.sh install`.
-
-Then test: quit Moonlight, wait until Sunshine stops (or `sunshine-on-demand stop`), press **Wake** in Moonlight → the PC shows up within ~10–20 s. Put the PC to sleep and try again.
-
-## Installing Sunshine
-| Distro | Install | Service name (detected automatically) |
-|---|---|---|
-| **Arch / CachyOS / Manjaro** | CachyOS repo: `sudo pacman -S sunshine` · AUR: `sunshine` / `sunshine-bin` | `app-dev.lizardbyte.app.Sunshine.service` (newer) or `sunshine.service` |
-| **Fedora / Nobara** | LizardByte's COPR (`sudo dnf copr enable lizardbyte/stable`, then install the Sunshine package - see Sunshine's [Getting Started](https://docs.lizardbyte.dev/projects/sunshine/latest/md_docs_2getting__started.html)) | as above |
-| **Debian / Ubuntu / Mint / Pop!_OS** | `.deb` from [Sunshine releases](https://github.com/LizardByte/Sunshine/releases) → `sudo apt install ./sunshine-*.deb` | `sunshine.service` (some builds ship no unit - see Sunshine docs) |
-| **Bazzite / immutable / any distro** | Flatpak: `flatpak install flathub dev.lizardbyte.app.Sunshine` (Bazzite also offers Sunshine itself - see the Bazzite docs) | `app-dev.lizardbyte.app.Sunshine.service` |
-
-**Flatpak Sunshine:** detected by `configure` (`SUNSHINE_FLATPAK=yes`); the installer then prefixes every prep command with `flatpak-spawn --host`, because Flatpak Sunshine otherwise runs them inside its sandbox where `systemctl`, `loginctl` and the helpers don't exist.
-
-**Capture:** a native install can use **KMS capture** (fastest; needed on many Wayland setups) after
-`./setup.sh setcap` (= `sudo setcap cap_sys_admin,cap_sys_nice+p $(readlink -f $(which sunshine))`). **Repeat after every Sunshine update.** Flatpak can't use setcap; use portal capture there.
-
-**Encoder:** Sunshine picks one automatically. Set `SUNSHINE_ENCODER` only to force it: `vaapi` (AMD, Intel), `nvenc` (NVIDIA with the proprietary driver). On PCs with an iGPU + dGPU set `SUNSHINE_ADAPTER` to the dGPU's render node (`ls -l /dev/dri/by-path`).
-
-## Desktop support
-| Desktop | Display switching (`DISPLAY_BACKEND`) | Unlock for stream | Status |
-|---|---|---|---|
-| **KDE Plasma 6** (Wayland/X11) | `kscreen` (kscreen-doctor) - detected | ✅ | **Fully tested** |
-| **GNOME** (Wayland) | `custom`: put your command in `DISPLAY_SET_CMD`/`DISPLAY_RESTORE_CMD` using `{W}`, `{H}`, `{R}`. Newer Mutter ships `gdctl` (check `gdctl set --help`); for older versions Sunshine's [App Examples](https://docs.lizardbyte.dev/projects/sunshine/latest/md_docs_2app__examples.html) list GNOME tools (displayconfig-mutter, gnome-randr). Or `none`. | ✅ (logind) | Untested |
-| **Sway / Hyprland / other wlroots** | `wlr-randr` - detected | depends on your locker (needs logind support, e.g. swaylock via swayidle `unlock` hook) | Untested |
-| **X11 (any WM)** | `xrandr` - detected | depends on locker | Untested |
-| Headless / dedicated TV output | `none` | - | - |
-
-If your monitor doesn't accept the stream resolution, set `STREAM_MODE` to a mode it does support (the TV upscales), or `DISPLAY_BACKEND="none"` and let Moonlight scale.
-
-## Wake-on-LAN
-The installer sets `wake-on-lan magic` on your NetworkManager connection. **You must also enable it in the BIOS/UEFI**:
-
-| Board vendor | Setting (names vary by model) |
-|---|---|
-| **ASUS** | Advanced → APM Configuration → **Power On By PCI-E** = Enabled, **ErP Ready** = Disabled |
-| **MSI** | Settings → Advanced → Wake Up Event Setup → **Resume By PCI-E Device** = Enabled; **ErP Ready** = Disabled |
-| **Gigabyte** | Settings → Platform Power → **Wake on LAN** = Enabled; **ErP** = Disabled |
-| **ASRock** | Advanced → ACPI Configuration → **PCIE Devices Power On** = Enabled; **Deep Sleep** = Disabled |
-| Laptops / prebuilts | often "Wake on LAN" under Power; some don't support it from sleep |
-
-No NetworkManager? Use systemd-networkd (`[Link] WakeOnLan=magic` in a `.link` file) or `ethtool -s <iface> wol g` at boot, and set `NM_CONNECTION=""`.
-
-Waking **from sleep** works from suspend (S3/s2idle with a capable NIC). Waking from **power-off** (S5) also works on most desktops with the BIOS setting, but the PC then boots to the **login screen**, where no user session exists and Sunshine can't run. Two answers:
-
-- **Always on (default):** a Wake that arrives before login is remembered (`/run/sunshine-on-demand/wake-pending`) and Sunshine starts the moment you log in (`sunshine-login.service`) - but someone has to type the password at the PC.
-- **TV session (`TV_SESSION="yes"`)**, fully remote - see below.
-
-## TV session (cold boot without typing a password)
-With `TV_SESSION="yes"`, a boot caused by Wake-on-LAN logs you in automatically - but **not** into your desktop. It starts a minimal Wayland session named "Steam TV (Sunshine streaming)":
-
-- **KWin started locked** (`kwin_wayland --lockscreen`): the PC's monitor shows the lock screen from the first frame.
-- It runs **only Sunshine, and Steam Big Picture once a stream asks for it**: no Plasma shell, no file manager, no autostart apps. Steam isn't started at boot (no noise from the PC); starting the app in Moonlight launches it (a few seconds of black while Steam loads). Quitting Steam ends the session (back to the login screen).
-- **Someone at the PC** who unlocks the waiting TV session with the password ends it and gets the normal login screen - that's the way from the TV session to your desktop.
-- A paired Moonlight stream **unlocks it, and it locks again afterwards**, exactly like after sleep. When idle for `IDLE_LIMIT` the PC **suspends** (`TV_SESSION_IDLE_ACTION`), so the next Wake resumes straight into the locked session.
-- Your **normal desktop login still requires your password**. Switching the PC on with the power button shows the normal login screen.
-
-How it decides (`TV_AUTOLOGIN="auto"` uses all three):
-1. **The TV is on** (one Wake press): right after boot - alongside the login screen, without delaying it - `sunshine-tv-clientcheck.service` pings `CLIENT_IP` for up to `TV_CLIENT_CHECK_SECONDS` (60). If the TV/box answers while nobody is logged in, someone pressed Wake in Moonlight: one-time auto-login into the TV session (login screen restarts ~10-15 s after power-on). Sunshine then announces itself and Moonlight should show the PC online by itself (or press Retry). TV off → nothing happens. Caveat: TVs that stay on the network in standby (LG "Quick Start+"/"Turn on via Wi-Fi") answer pings while looking off - check with `ping <TV IP>` while it's off; if it answers, set `TV_AUTOLOGIN="on-wake"`.
-2. **Wake at the login screen** (works on any board): after a Wake from power-off the PC boots to the normal login screen. **Press Wake in Moonlight a second time** once it has booted (~30 s). The Wake listener sees that nobody is logged in and remembers the wake; `sunshine-tv-wake.path` then enables a **one-time** auto-login into the TV session, restarts the login screen (safe - nobody is logged in), and removes the auto-login again 20 s later. Press **Retry** in Moonlight ~15 s later.
-3. **Boot reason** (only some boards): `sunshine-tv-autologin.service` reads the SMBIOS **Wake-up Type** before the login screen starts; `LAN Remote` / `PCI PME#` (`TV_WAKE_TYPES`) → straight into the TV session, no second Wake needed. Many boards (e.g. the reference ASUS B850M) report "Power Switch" for every boot - check yours after a Moonlight wake: `journalctl -u sunshine-tv-autologin -b`.
-
-Switching the PC on with its power button never auto-logs in. (`TV_AUTOLOGIN="always"` would use the TV session on every boot.)
-
-Requirements and limits:
-- **KWin** (KDE) for the session; **Plasma Login Manager or SDDM** for auto-login (others: set auto-login to the `sunshine-tv` session yourself).
-- It runs as **your user**: it limits what's on screen, not what your user may do (e.g. Steam's built-in browser still works). For hard isolation use a separate Linux account for streaming.
-- With auto-login, **KWallet isn't unlocked** in that session (no password was typed) - irrelevant for Steam/Sunshine, but apps using KWallet would prompt.
-- No disk encryption prompt may sit before the login (an encrypted root needs a password at boot anyway).
+Details and testing: [docs/linux.md](docs/linux.md).
 
 ## Everyday use
-1. TV: open **Moonlight** → your PC. Offline? Choose **Wake** and wait ~10–20 s.
-2. Start **Steam Big Picture**, play.
-3. Quit the stream in Moonlight. Sunshine stops by itself after `IDLE_LIMIT`.
+1. On the TV, open **Moonlight**. If the PC shows as offline, press **Wake** and wait about 15 s.
+2. Start **Steam Big Picture** and play.
+3. **Quit** the stream when done. Everything resets itself.
 
-By hand: app menu → **Sunshine: start/stop streaming host**, or `sunshine-on-demand start|stop|status` (also handy as KDE Connect run commands from your phone).
+## Security in brief
+- Sunshine runs only on demand.
+- Only your **paired** TV can connect; the firewall only allows **its IP**; the stream is **encrypted**.
+- A Wake never unlocks anything: the session is unlocked only for a paired client's stream, and locked again afterwards.
+- The TV can't type, move the mouse, or show your desktop; it only gets Steam Big Picture.
 
-## What gets installed
-| Component | Scope | What it does |
-|---|---|---|
-| `sunshine-wol.socket` + `sunshine-wol.service` | system | Listens on UDP 9; `sunshine-wol-handler.py` (runs as you) starts Sunshine **only** for a magic packet with your MAC sent **from `CLIENT_IP`**. Logs: `journalctl -u sunshine-wol` |
-| `sunshine-resume.service` | system | Starts Sunshine after every resume (the idle timer stops it again if nobody connects) |
-| `sunshine-login.service` | user | At login: starts Sunshine if a Wake arrived while nobody was logged in |
-| `sunshine-tv-autologin.service`, `sunshine-tv-wake.path/.service` + `/usr/local/lib/sunshine-on-demand/sunshine-tv-*` + `/usr/share/wayland-sessions/sunshine-tv.desktop` | system | Only with `TV_SESSION=yes`: the TV session and the boot-time auto-login decision (edits `/etc/plasmalogin.conf` `[Autologin]` - original kept as `.pre-sunshine-on-demand` - or an SDDM drop-in) |
-| `/etc/sunshine-on-demand.env` | system | `WOL_MAC`, `CLIENT_IP`, `SUNSHINE_UNIT` for the system units |
-| `sunshine-idle-stop.timer` | user | Every minute: stops Sunshine after `IDLE_LIMIT` without a stream (reads `CLIENT CONNECTED/DISCONNECTED` in Sunshine's log) |
-| `sunshine-stream-inhibit.service` | user | `systemd-inhibit` against sleep/idle while streaming |
-| `~/.local/bin/sunshine-*` | user | Helpers called by Sunshine's prep commands (`display-mode`, `session-lock`, `steam-reset`) + `sunshine-on-demand start\|stop\|status\|cleanup` (symlinks into the repo) |
-| `~/.local/share/applications/sunshine-{start,stop}.desktop` | user | Menu entries (written with absolute paths) |
-| `~/.config/sunshine-on-demand/config.env` | user | Copy of your `config.env` read by the helpers |
-| `~/.config/sunshine/sunshine.conf`, `apps.json` | user | **Merged**, not replaced (backups `*.bak-<date>`): input blocking, encryption, web UI origin, encoder/capture; the app with its prep commands; Desktop app removed |
-| Firewall rules | system | ufw / firewalld: TCP 47984, 47989, 48010 + UDP 47998–48000 (+ UDP 9) **from `CLIENT_IP` only**; web UI port 47990 is not opened |
+Details: [docs/how-it-works.md](docs/how-it-works.md#security-model).
 
-Prep commands of the app (Sunshine runs **do** top→bottom at stream start, **undo** bottom→top at the end):
-
-| # | do | undo |
-|---|---|---|
-| 1 | inhibit sleep | release |
-| 2 | `sunshine-session-lock unlock` (only if locked) | `relock` (only if step 2 unlocked) |
-| 3 | - | `sunshine-steam-reset` (close Big Picture, restart Steam minimized) |
-| 4 | `sunshine-display-mode stream` | `restore` (runs first) |
-
-Every helper logs to the journal: `journalctl --user -t sunshine-display-mode -t sunshine-session-lock -t sunshine-steam-reset`.
-
-## Security model
-- Sunshine only runs when needed; when it's stopped nothing can connect.
-- Only the paired client (PIN pairing → client certificate) can stream; the firewall only lets `CLIENT_IP` reach Sunshine and the Wake listener.
-- A Wake packet only **starts** Sunshine - it never unlocks anything. The session is unlocked only when a paired client starts an **encrypted** stream, and locked again afterwards.
-- With `BLOCK_CLIENT_*`, the TV can't type, move the mouse or (optionally) send controller input; with `REMOVE_DESKTOP_APP` it can't show your desktop - only Big Picture.
-- Accepted risks: while you stream, the PC's own monitor shows the unlocked session. If Moonlight **disconnects without quitting the app** (back button, network drop), Sunshine keeps the app running so you can resume - the session stays unlocked and in the stream resolution until you reconnect and quit, or until `IDLE_LIMIT` passes; then `sunshine-idle-stop` stops Sunshine and `sunshine-on-demand cleanup` restores the display, re-locks and releases the inhibitor. **Quit** the stream from Moonlight's menu to undo everything immediately; lower `IDLE_LIMIT` to shorten the window.
-- On the TV side: disable automatic content recognition (LG Live Plus, Samsung Viewing Information Services, …).
-
-## Troubleshooting
-| Symptom | Check |
+## Documentation
+| | |
 |---|---|
-| **Wake** does nothing (PC awake) | `journalctl -u sunshine-wol -n 20`: packet "accepted"? "not the allowed client" → the TV's IP changed (fix `CLIENT_IP` + reinstall, or DHCP reservation). Nothing logged → firewall rule for UDP 9 / socket not active (`./setup.sh status`). |
-| **Wake** doesn't wake a sleeping PC | BIOS settings above; `nmcli -g 802-3-ethernet.wake-on-lan con show "<conn>"` → `magic`; use Ethernet |
-| Stream shows the **lock screen** | `journalctl --user -t sunshine-session-lock`; your locker must honour `loginctl unlock-session` (KDE/GNOME do) |
-| Black screen / no capture | `./setup.sh setcap` (after every Sunshine update) or set `SUNSHINE_CAPTURE` (portal/wlr/x11) |
-| Display didn't switch / restore | `journalctl --user -t sunshine-display-mode`; `sunshine-display-mode current`; check `DISPLAY_OUTPUT` and that the mode exists |
-| Steam window wrong size after a stream | `journalctl --user -t sunshine-steam-reset` - skipped because a game was still running? Run `sunshine-steam-reset` by hand |
-| After waking from **power-off**, Moonlight stays on "Wake" | No user session at the login screen. Either log in (Sunshine then starts automatically) or use the TV session. `journalctl -u sunshine-wol -b` shows "wake remembered" |
-| TV session didn't start after a Wake from off | Press Wake again once the PC sits at the login screen. `journalctl -u sunshine-wol -u sunshine-tv-wake -b` should show "wake remembered" then "one-time auto-login". |
-| Moonlight still "offline" although Sunshine runs | Moonlight's Wake only waits ~15 s; press **Retry** (it then checks the encrypted port and goes online) |
-| PC still unlocked / in 4K after leaving the stream | You disconnected without quitting the app (see Security model). Quit from Moonlight, or run `sunshine-on-demand stop` (stops Sunshine + cleanup) |
-| Sunshine stopped during a stream | `journalctl --user -u sunshine-idle-stop` (it only stops after a disconnect + `IDLE_LIMIT`) |
-| Blocky picture | Moonlight bitrate too low (default can be ~10 Mbps) - set 50–80 Mbps (≤ 65 on 100 Mb/s TVs) |
-| Controller lag / drop-outs | See [controller notes](docs/tv-clients.md#controller-tv-or-pc) - antennas, firmware, pair to the PC |
+| [How it works](docs/how-it-works.md) | components, TV session, security model |
+| [Linux install](docs/linux.md) · [Windows (experimental)](docs/windows.md) | manual setup |
+| [TV clients](docs/tv-clients.md) | Moonlight per TV platform, pairing, standby check |
+| [Compatibility](docs/compatibility.md) | what works where |
+| [Troubleshooting](docs/troubleshooting.md) | symptoms, logs (`./setup.sh report`), lessons learned |
+| [Reference setup](docs/reference-setup.md) | the tested hardware |
+| Extras | [LG webOS Developer Mode](extras/lg-webos-devmode/README.md) · [RDR2 (Epic) via Heroic](extras/rdr2-epic-heroic/README.md) |
 
-**Collect everything for a bug report:** `./setup.sh report` (current boot) or `./setup.sh report -1` (previous boot, e.g. after a test that ended in a reboot) writes all relevant logs - wake listener, TV auto-login, TV session, lock/unlock, display switching, Sunshine - into one file under `~/.cache/sunshine-on-demand/`. With `SUNSHINE_LOG_LEVEL="debug"` it also contains every request the Moonlight client made. Moonlight TV itself logs to LG's PmLog, which isn't readable without rooting the TV.
+**Uninstall:** `./setup.sh uninstall` (preview it first with `--dry-run`).
 
-## Uninstall
-```bash
-./setup.sh uninstall --dry-run   # preview
-./setup.sh uninstall             # units, links, env file, firewall rules, NM WoL setting
-```
-Sunshine's own config is left in place (with backups). Extras are removed per their READMEs.
-
-## Repository layout
-```
-setup.sh                  installer: configure | install | setcap | extra | status | uninstall
-config.env.example        every option, documented (your config.env is gitignored)
-bin/                      helpers linked into ~/.local/bin
-lib/                      Wake-on-LAN handler (installed to /usr/local/lib/sunshine-on-demand)
-systemd/user/             user units      systemd/system/   system units (*.in = templated)
-share/applications/       "Sunshine: start/stop" menu entries
-extras/                   lg-webos-devmode, rdr2-epic-heroic
-docs/                     tv-clients.md, reference-setup.md
-```
-
-## Reference setup
-Built and tested on CachyOS + KDE Plasma 6 (Wayland), AMD RX 9070 XT, LG webOS 22 TV - see [docs/reference-setup.md](docs/reference-setup.md) for the hardware, what was verified, and lessons learned.
-
-## Credits
-[Sunshine](https://github.com/LizardByte/Sunshine) (LizardByte), [Moonlight](https://moonlight-stream.org), [Moonlight TV](https://github.com/mariotaku/moonlight-tv) (mariotaku), [Heroic Games Launcher](https://heroicgameslauncher.com).
+## License & credits
+[MIT](LICENSE) © NichoBricko. Built on [Sunshine](https://github.com/LizardByte/Sunshine) (LizardByte), [Moonlight](https://moonlight-stream.org), [Moonlight TV](https://github.com/mariotaku/moonlight-tv) (mariotaku) and [Moonlight for Tizen](https://github.com/brightcraft/moonlight-tizen). Not affiliated with any of them.
