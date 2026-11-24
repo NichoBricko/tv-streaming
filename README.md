@@ -108,7 +108,8 @@ Waking **from sleep** works from suspend (S3/s2idle with a capable NIC). Waking 
 With `TV_SESSION="yes"`, a boot caused by Wake-on-LAN logs you in automatically - but **not** into your desktop. It starts a minimal Wayland session named "Steam TV (Sunshine streaming)":
 
 - **KWin started locked** (`kwin_wayland --lockscreen`): the PC's monitor shows the lock screen from the first frame.
-- It runs **only Steam Big Picture and Sunshine**: no Plasma shell, no file manager, no autostart apps. Quitting Steam ends the session (back to the login screen).
+- It runs **only Sunshine, and Steam Big Picture once a stream asks for it**: no Plasma shell, no file manager, no autostart apps. Steam isn't started at boot (no noise from the PC); starting the app in Moonlight launches it (a few seconds of black while Steam loads). Quitting Steam ends the session (back to the login screen).
+- **Someone at the PC** who unlocks the waiting TV session with the password ends it and gets the normal login screen - that's the way from the TV session to your desktop.
 - A paired Moonlight stream **unlocks it, and it locks again afterwards**, exactly like after sleep. When idle for `IDLE_LIMIT` the PC **suspends** (`TV_SESSION_IDLE_ACTION`), so the next Wake resumes straight into the locked session.
 - Your **normal desktop login still requires your password**. Switching the PC on with the power button shows the normal login screen.
 

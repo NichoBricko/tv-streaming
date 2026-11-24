@@ -28,8 +28,13 @@ case "${1:-}" in
     tv=no; [[ -e ${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sunshine-tv-session ]] && tv=yes
     if [[ $tv == yes || $(loginctl show-session "$session" -p LockedHint --value) == yes ]]; then
       # (the TV session is always treated as locked when a stream starts)
-      loginctl unlock-session "$session" && touch "$MARKER"
-      log "session $session was locked; unlocked for the stream"
+      # marker first: the TV session treats "unlocked without marker" as someone at the PC
+      touch "$MARKER"
+      if loginctl unlock-session "$session"; then
+        log "session $session was locked; unlocked for the stream"
+      else
+        rm -f "$MARKER"; log "could not unlock session $session"
+      fi
     else
       rm -f "$MARKER"
       log "session $session already unlocked; will not re-lock afterwards"

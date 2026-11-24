@@ -3,8 +3,11 @@
 #
 #  - publishes the session's display to user services (Sunshine, kscreen, portals)
 #  - starts Sunshine
-#  - runs Steam Big Picture as the only application; the session ends when
-#    Steam exits (e.g. "Exit Steam" in the power menu)
+#  - waits until a stream asks for the app (sunshine-open-app creates
+#    $XDG_RUNTIME_DIR/sunshine-tv-open), then runs Steam Big Picture as the only
+#    application; the session ends when Steam exits ("Exit Steam")
+#  - if someone unlocks the session at the PC itself while it waits (not via a
+#    stream), the session ends, so they land at the normal login screen
 #
 # Nothing else is started: no Plasma shell, no XDG autostart, no
 # graphical-session.target user services. The session stays locked until a
@@ -38,8 +41,23 @@ echo "${XDG_SESSION_ID:-}" > "$MARKER"
 rm -f /run/sunshine-on-demand/wake-pending 2>/dev/null || true   # this wake is handled
 dbus-update-activation-environment --systemd "${VARS[@]}" 2>/dev/null \
   || systemctl --user import-environment "${VARS[@]}"
-log "TV session started (session ${XDG_SESSION_ID:-?}); starting Sunshine and Steam Big Picture"
+log "TV session started (session ${XDG_SESSION_ID:-?}); starting Sunshine, Steam waits for a stream"
+rm -f "$RUN/sunshine-tv-open"
 systemctl --user start "$UNIT"
+
+# Wait for a stream to ask for the app - or for a local unlock at the PC
+while [[ ! -e $RUN/sunshine-tv-open ]]; do
+  if [[ $(loginctl show-session "${XDG_SESSION_ID:-}" -p LockedHint --value 2>/dev/null) == no \
+        && ! -e $RUN/sunshine-unlocked-session ]]; then
+    log "session unlocked at the PC (not by a stream); ending the TV session -> login screen"
+    "$HOME/.local/bin/sunshine-on-demand" stop 2>/dev/null || systemctl --user stop "$UNIT"
+    rm -f "$MARKER"
+    exit 0
+  fi
+  sleep 1
+done
+rm -f "$RUN/sunshine-tv-open"
+log "stream asked for Steam Big Picture; starting it"
 
 "${STEAM[@]}" -gamepadui
 # The launcher can return while the client keeps running (restart after an update)

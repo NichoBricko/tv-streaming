@@ -267,7 +267,7 @@ if "bigpicture" in e["APP_OPEN_CMD"]:
     prep.append({"do": "", "undo": f"{b}/sunshine-steam-reset"})
 if e["BACKEND"] != "none":
     prep.append({"do": f"{b}/sunshine-display-mode stream", "undo": f"{b}/sunshine-display-mode restore"})
-detached = [f"setsid {e['APP_OPEN_CMD']}"]
+detached = [f"setsid {b}/sunshine-open-app"]
 if e["FLATPAK"] == "yes":
     # Flatpak Sunshine runs commands inside its sandbox; run them on the host instead
     host = lambda c: f"flatpak-spawn --host {c}" if c else c
@@ -497,7 +497,7 @@ cmd_report() {
     journalctl -b "$boot" --no-pager -o short-iso 2>/dev/null | grep -E 'systemd-logind.*(New|Removed) session|PM: suspend (entry|exit)|System is (powering|rebooting)'
     echo; echo "## User: TV session and helpers"
     journalctl --user -b "$boot" --no-pager -o short-iso -t sunshine-tv-session -t sunshine-on-demand -t sunshine-session-lock \
-      -t sunshine-display-mode -t sunshine-steam-reset -t sunshine-idle-stop 2>/dev/null
+      -t sunshine-display-mode -t sunshine-steam-reset -t sunshine-idle-stop -t sunshine-open-app 2>/dev/null
     echo; echo "## Sunshine: lifecycle, client requests and sessions (set SUNSHINE_LOG_LEVEL=debug for every request)"
     journalctl --user -b "$boot" -u "$u" --no-pager -o short-iso 2>/dev/null | grep -E 'Started|Stopp|CLIENT|session|Executing|Error|Fatal|Warning|/(serverinfo|pair|applist|launch|resume|cancel|appasset)|TUNNEL|Client|client' \
       | grep -vE 'Found interface|config:' | cut -c1-260

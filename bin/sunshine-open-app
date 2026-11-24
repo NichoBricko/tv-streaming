@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Sunshine "detached" command of the streamed app: opens APP_OPEN_CMD (Steam Big
+# Picture). Inside the TV session it only signals sunshine-tv-session-inner,
+# which starts Steam in the session itself - so Steam isn't launched (and making
+# noise) at boot, only when a stream actually asks for it.
+set -u
+CONFIG=${SOD_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/sunshine-on-demand/config.env}
+# shellcheck source=/dev/null
+[[ -r $CONFIG ]] && . "$CONFIG"
+RUN=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+log() { echo "sunshine-open-app: $*"; logger -t sunshine-open-app -- "$*" 2>/dev/null || true; }
+
+if [[ -e $RUN/sunshine-tv-session ]]; then
+  touch "$RUN/sunshine-tv-open"
+  log "TV session: asked the session to start Steam Big Picture"
+  exit 0
+fi
+read -r -a CMD <<< "${APP_OPEN_CMD:-steam steam://open/bigpicture}"
+exec "${CMD[@]}"
