@@ -21,6 +21,19 @@ MARKER=$RUN/sunshine-tv-session
 VARS=(WAYLAND_DISPLAY DISPLAY XAUTHORITY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_ID)
 log() { echo "sunshine-tv-session: $*"; logger -t sunshine-tv-session -- "$*" 2>/dev/null || true; }
 
+# Lock FIRST, through logind (so LockedHint is set and a stream can unlock it
+# with "loginctl unlock-session"). Nothing is running yet that could be used.
+for _ in $(seq 1 50); do
+  loginctl lock-session "${XDG_SESSION_ID:-}" 2>/dev/null
+  [[ $(loginctl show-session "${XDG_SESSION_ID:-}" -p LockedHint --value 2>/dev/null) == yes ]] && break
+  sleep 0.2
+done
+if [[ $(loginctl show-session "${XDG_SESSION_ID:-}" -p LockedHint --value 2>/dev/null) != yes ]]; then
+  log "could not lock the session - ending it for safety"
+  exit 1
+fi
+log "session ${XDG_SESSION_ID:-?} locked"
+
 echo "${XDG_SESSION_ID:-}" > "$MARKER"
 rm -f /run/sunshine-on-demand/wake-pending 2>/dev/null || true   # this wake is handled
 dbus-update-activation-environment --systemd "${VARS[@]}" 2>/dev/null \
