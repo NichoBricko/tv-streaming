@@ -1,30 +1,67 @@
 #!/usr/bin/env bash
+# sunshine-steam-reset [--deferred]
+#
 # Sunshine prep (undo) command, run after the display is back at its normal mode.
-#
 # Closes Big Picture and restarts the Steam client minimized to the tray.
-# Steam stores its interface scale (AutoScaleFactor) while the screen is in the
-# stream resolution and only recalculates it on restart, so without this its
-# window stays sized/scaled for 4K on a 1080p monitor.
 #
-# Skipped while a game is still running (a Steam game, or any Wine/Proton game
-# such as one launched from Heroic or Lutris) so nothing you keep playing on the
-# PC is killed.
+# Why: with "Scale text and icons to match monitor settings" on, Steam stores its
+# interface scale (AutoScaleFactor) while the screen is in the stream resolution and
+# only recalculates it on restart - its window stays scaled for 4K on a 1080p
+# monitor. (Turning that Steam setting off avoids the problem entirely; see
+# docs/troubleshooting.md.)
+#
+# A restart would close a running game, so while one runs (a Steam game, or any
+# Wine/Proton game such as Heroic/Lutris) the restart is DEFERRED: a small
+# background job (systemd --user unit "sunshine-steam-reset-deferred") waits until
+# no game and no stream is running, then restarts Steam.
 
 set -u
 CONFIG=${SOD_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/sunshine-on-demand/config.env}
 # shellcheck source=/dev/null
 [[ -r $CONFIG ]] && . "$CONFIG"
 read -r -a STEAM <<< "${STEAM_CMD:-steam}"
+RUN=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+DEFERRED_UNIT=sunshine-steam-reset-deferred
 log() { echo "sunshine-steam-reset: $*"; logger -t sunshine-steam-reset -- "$*" 2>/dev/null || true; }
 
-# In the TV session Big Picture *is* the session: closing it or restarting Steam
-# would end the session. Nothing to do there.
-if [[ -e ${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sunshine-tv-session ]]; then
-  log "TV session: leaving Big Picture running"
+steam_running() { pgrep -x steam >/dev/null || pgrep -f 'com.valvesoftware.Steam' >/dev/null; }
+game_running()  { pgrep -f '/reaper SteamLaunch' >/dev/null || pgrep -x wineserver >/dev/null; }
+stream_active() { [[ -e $RUN/sunshine-display-mode.prev ]] || systemctl --user is-active --quiet sunshine-stream-inhibit.service; }
+
+restart_steam() {
+  if ! steam_running; then log "Steam not running; nothing to reset"; return 0; fi
+  log "restarting Steam so it lays out for the normal display mode"
+  "${STEAM[@]}" -shutdown >/dev/null 2>&1
+  for _ in $(seq 1 30); do          # wait up to 30 s for a clean exit
+    steam_running || break
+    sleep 1
+  done
+  if steam_running; then log "Steam did not exit in time; leaving it alone"; return 1; fi
+  setsid "${STEAM[@]}" -silent >/dev/null 2>&1 < /dev/null &
+  log "Steam restarted (minimized to tray)"
+}
+
+# ---- deferred mode: wait for the game (and any new stream) to end, then restart
+if [[ ${1:-} == --deferred ]]; then
+  deadline=$(( $(date +%s) + ${STEAM_RESET_WAIT_HOURS:-12} * 3600 ))
+  while (( $(date +%s) < deadline )); do
+    if ! game_running && ! stream_active; then
+      sleep 5                          # settle (game teardown, Steam sync)
+      if ! game_running && ! stream_active; then restart_steam; exit $?; fi
+    fi
+    sleep 15
+  done
+  log "gave up waiting for the game to close"
   exit 0
 fi
 
-steam_running() { pgrep -x steam >/dev/null || pgrep -f 'com.valvesoftware.Steam' >/dev/null; }
+# ---- normal mode (end of a stream)
+# In the TV session Big Picture *is* the session: closing it or restarting Steam
+# would end the session. Nothing to do there.
+if [[ -e $RUN/sunshine-tv-session ]]; then
+  log "TV session: leaving Big Picture running"
+  exit 0
+fi
 
 sleep 2   # let the compositor finish the mode switch
 setsid "${STEAM[@]}" steam://close/bigpicture >/dev/null 2>&1 < /dev/null &
@@ -33,24 +70,16 @@ if [[ ${STEAM_RESET:-yes} != yes ]]; then
   log "closed Big Picture (Steam restart disabled in config)"
   exit 0
 fi
-if pgrep -f '/reaper SteamLaunch' >/dev/null || pgrep -x wineserver >/dev/null; then
-  log "a game is still running; closed Big Picture but left Steam running"
+if game_running; then
+  if systemctl --user is-active --quiet "$DEFERRED_UNIT"; then
+    log "a game is still running; a deferred Steam restart is already waiting"
+  elif systemd-run --user --unit="$DEFERRED_UNIT" --collect --quiet --setenv=SOD_CONFIG="$CONFIG" \
+         --description="Restart Steam once the game has closed (sunshine-on-demand)" \
+         "$(readlink -f "$0")" --deferred; then
+    log "a game is still running; Steam will be restarted once it has closed"
+  else
+    log "a game is still running; could not schedule a deferred restart"
+  fi
   exit 0
 fi
-if ! steam_running; then
-  log "Steam not running; nothing to reset"
-  exit 0
-fi
-
-log "restarting Steam so it lays out for the normal display mode"
-"${STEAM[@]}" -shutdown >/dev/null 2>&1
-for _ in $(seq 1 30); do          # wait up to 30 s for a clean exit
-  steam_running || break
-  sleep 1
-done
-if steam_running; then
-  log "Steam did not exit in time; leaving it alone"
-  exit 1
-fi
-setsid "${STEAM[@]}" -silent >/dev/null 2>&1 < /dev/null &
-log "Steam restarted (minimized to tray)"
+restart_steam
