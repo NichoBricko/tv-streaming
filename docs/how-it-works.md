@@ -13,6 +13,7 @@ Technical reference for the Linux implementation. For installing, see the [READM
 | **Display switching** | The PC's display switches to the client's resolution/fps, then back to the previous mode (KDE, X11, wlroots; GNOME via your own command). |
 | **Steam fix-up** | Steam is restarted minimized after the stream, so it doesn't keep its 4K layout on a 1080p monitor. Skipped while a game is still running. |
 | **No sleep mid-game** | A `systemd-inhibit` lock is held while streaming (controller input doesn't count as desktop activity). |
+| **Stream smoothness** (optional) | `SUNSHINE_STRICT_RC` limits keyframe size; `STREAM_PACING_MBIT` paces only Sunshine's video (UDP 47998) via `sunshine-stream-pacing.service`, so 100 Mb/s TVs don't overflow on keyframes. |
 | **Locked down** | Only one app (Steam Big Picture); keyboard/mouse (optionally controller) input from the TV blocked; stream encryption required; web UI local-only; firewall open **only** to the client's IP. |
 
 ## What gets installed

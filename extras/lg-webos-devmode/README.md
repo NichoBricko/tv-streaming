@@ -43,9 +43,17 @@ The Developer Mode session expires (currently after **1000 hours**), and then si
 
 Remove it with `systemctl --user disable --now lgtv-devmode-extend.timer` and delete the links in `~/.local/bin` and `~/.config/systemd/user`.
 
+## Measure stream drops
+`lgtv-stream-stats` (installed by the same `./setup.sh extra lg-webos-devmode`) reads the TV's counters, read-only:
+```
+lgtv-stream-stats start     # before playing
+lgtv-stream-stats stop      # after ~15 min: TV buffer overflows / port drops per minute + PC frames sent without FEC
+```
+Use it to compare settings; see [Stream stutter on smart TVs](../../docs/troubleshooting.md#stream-stutter-on-smart-tvs).
+
 ## Moonlight TV settings that worked well
 - Resolution 3840x2160 and 60 fps. The codec picks HEVC automatically.
-- **Bitrate ~55 Mbps.** LG TVs have **100 Mb/s Ethernet**; the maximum offered is 65.
+- **Bitrate ~40 Mbps.** LG TVs have **100 Mb/s Ethernet** and weak SoCs; 55 stuttered sporadically on the reference TV.
 - HDR off unless your PC streams HDR.
 - This version has **no stats overlay**. Check bitrate on the PC side instead, e.g. in Sunshine's log ("Streaming bitrate is …").
 - **The TV's Bluetooth adds noticeable input lag** for controllers. Pairing the controller with the PC was much better. If you do that, set `BLOCK_CLIENT_CONTROLLER="yes"`.

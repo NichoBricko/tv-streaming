@@ -6,7 +6,7 @@ Sunshine works with any Moonlight client. What differs between TVs is how Moonli
 | TV / device | Moonlight client | How to install | Claude can do it | Notes |
 |---|---|---|---|---|
 | **Android TV / Google TV**: Sony, TCL, Philips, Sharp, Xiaomi, Hisense (Android models); **Nvidia Shield**, **Google TV Streamer**, Chromecast with Google TV | Moonlight Game Streaming (official) | Google Play Store, or the APK from [moonlight-android releases](https://github.com/moonlight-stream/moonlight-android/releases) | **Yes** via `adb` ([below](#android-tv--google-tv--fire-os-via-adb)) | Easiest platform; `adb logcat` shows Moonlight's own log. Shield and Google TV Streamer have gigabit Ethernet; most TVs 100 Mb/s. |
-| **LG webOS** (webOS 3+) | [Moonlight TV](https://github.com/mariotaku/moonlight-tv) (community) | Sideload via LG Developer Mode | **Yes** via LG's `ares` tools: [extras/lg-webos-devmode](../extras/lg-webos-devmode/README.md) | Developer Mode must be renewed (automated). 100 Mb/s Ethernet. The TV's Bluetooth added noticeable controller lag. Standby drops off the network (verified). |
+| **LG webOS** (webOS 3+) | [Moonlight TV](https://github.com/mariotaku/moonlight-tv) (community) | Sideload via LG Developer Mode | **Yes** via LG's `ares` tools: [extras/lg-webos-devmode](../extras/lg-webos-devmode/README.md) | Developer Mode must be renewed (automated). 100 Mb/s Ethernet, weak SoC: use **~40 Mbps**, the NDL decoder, and measure with `lgtv-stream-stats` ([stutter](troubleshooting.md#stream-stutter-on-smart-tvs)). The TV's Bluetooth added noticeable controller lag. Standby drops off the network (verified). |
 | **Samsung Tizen** (2020+, Tizen 5.5+) | [Moonlight for Tizen](https://github.com/brightcraft/moonlight-tizen) (community) | Developer Mode on the TV, then **Apps2Samsung** (easiest) or Tizen Studio / `sdb`; follow the project's [Installation Guide](https://github.com/brightcraft/moonlight-tizen/wiki/Installation-Guide) | Partly (guided; the certificate step is manual) | Steps change between Tizen versions. Turn off "Instant On" if the TV answers pings in standby. |
 | **Apple TV 4K** (2021+) | Moonlight Game Streaming (official) | App Store | No (manual) | 128 GB model has gigabit Ethernet (the 3rd-gen 64 GB has none). Good controller support. |
 | **Amazon Fire TV on Fire OS**: Fire TV Stick 4K / 4K Max (older generations), Fire TV Cube, Fire OS TVs | Moonlight (Android build) | Amazon Appstore, or APK via `adb` | **Yes** via `adb` | Sticks have no Ethernet; use a USB Ethernet adapter for stable 4K. |
@@ -32,12 +32,25 @@ Claude (or you) can install and launch Moonlight from the PC:
 ## Recommended Moonlight settings
 - **Resolution / fps:** your TV's native resolution, usually **3840x2160 @ 60**.
 - **Bitrate:**
-  - **≤ 65 Mbps** on 100 Mb/s Ethernet (most TVs; 55 worked well on the reference LG);
+  - **~40 Mbps** on smart TVs with 100 Mb/s Ethernet (55 stuttered sporadically on the reference LG; Moonlight TV's FAQ calls 35–40 the webOS sweet spot);
   - **80–150 Mbps** on gigabit boxes;
   - Wi-Fi: 5 GHz only, start around 40.
 - **Codec:** HEVC (Auto usually picks it). HDR off unless the PC streams HDR.
 - **Network:** wired Ethernet on both ends if at all possible.
 - **TV picture mode:** **Game / Game Optimizer**.
+
+## LG privacy settings
+Worth turning off for privacy. **No evidence that they improve streaming**: the reference TV used 5% CPU at idle.
+- **With the remote:**
+  - Settings → General → System → Additional Settings → **Live Plus** off (screen-content recognition) and **Home Settings → Home Promotion / Content Recommendation** off;
+  - User Agreements: decline the optional ones;
+  - **Limit AD Tracking** on;
+  - AI recommendations off;
+  - **Quick Start+** off (it also keeps the standby check reliable).
+- **Optional DNS blocking** (router / Pi-hole / AdGuard Home):
+  - safe to block: `lgads.tv`, `lgsmartad.com`, `ad.lgappstv.com`, `alphonso.tv`, `lgsmartplatform.com`, `elastic.lgwebostv.com`;
+  - **don't** block `wiselg.com` (apps break), `us.lgtvsdp.com` (clock), `lgappstv.com` (Content Store) or `ngfts.lge.com`.
+- **Debloat tools:** `cleanyourtv` (popular, Claude/Codex-driven) works over ADB and therefore only on **Android/Google TV**; on those it's careful (disables apps, has a restore). Its webOS ports only replace the home screen.
 
 ## Pairing (same on every client)
 1. Give the client a **fixed IP** (DHCP reservation in your router). The firewall and the Wake listener only accept `CLIENT_IP`.

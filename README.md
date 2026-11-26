@@ -120,7 +120,7 @@ Details: [docs/how-it-works.md](docs/how-it-works.md#security-model).
 | [Compatibility](docs/compatibility.md) | what works where |
 | [Troubleshooting](docs/troubleshooting.md) | symptoms, logs (`./setup.sh report`), lessons learned |
 | [Reference setup](docs/reference-setup.md) | the tested hardware |
-| Extras | [LG webOS Developer Mode](extras/lg-webos-devmode/README.md) · [RDR2 (Epic) via Heroic](extras/rdr2-epic-heroic/README.md) |
+| Extras | [LG webOS Developer Mode + stream stats](extras/lg-webos-devmode/README.md) · [Xbox controller Bluetooth dropouts](extras/xbox-controller-bluetooth/README.md) · [RDR2 (Epic) via Heroic](extras/rdr2-epic-heroic/README.md) |
 
 **Uninstall:** `./setup.sh uninstall` (preview it first with `--dry-run`).
 
