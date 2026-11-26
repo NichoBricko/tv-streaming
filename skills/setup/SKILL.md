@@ -88,7 +88,7 @@ Follow `docs/tv-clients.md` for their platform:
 - **Apple TV / Fire OS Appstore:** they install it from the store.
 - **No client available** (VIDAA, Roku, Vega OS): recommend a box from the table and stop here.
 
-Moonlight settings: 4K60, HEVC. Bitrate **~40 Mbps** on smart TVs with 100 Mb/s Ethernet (verified: 0 drops vs 170/min at 55), 80–150 on gigabit boxes. On LG webOS set the decoder to **NDL**. Keep `SUNSHINE_STRICT_RC="yes"` (default). For LG, offer `lgtv-stream-stats` to measure.
+Moonlight settings: 4K60, HEVC. Smart TVs with 100 Mb/s Ethernet: start at **40 Mbps** and raise toward **60** while `lgtv-stream-stats` (LG) shows ~0 drops (60 verified on the reference LG; the fix was the decoder + strict rate control, not the bitrate). Gigabit boxes: 80–150. On LG webOS set the decoder to **NDL** explicitly. Keep `SUNSHINE_STRICT_RC="yes"` (default). For LG, offer `lgtv-stream-stats` to measure.
 
 ## 6. Pair, then the standby check
 1. `sunshine-on-demand start`. The user opens https://localhost:47990, creates a login, and enters the PIN Moonlight shows.

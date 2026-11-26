@@ -26,7 +26,7 @@ The installed copy is usually `~/.local/share/sunshine-on-demand` (or wherever t
    - **The TV answers pings in standby** → every boot goes into the TV session. Fix: turn off the TV's network standby, or `TV_AUTOLOGIN="on-wake"`.
    - **Moonlight's Wake gave up after 15 s** → press Retry.
    - **Disconnected without quitting the app** → still unlocked/4K until idle stop. Fix: `sunshine-on-demand stop`.
-   - **Stutter / fps drops on a smart TV** → keyframe bursts. Measure with `lgtv-stream-stats start/stop` (LG) and read "Stream quality" in the report. Fix order: ~40 Mbps + NDL → `SUNSHINE_STRICT_RC` → `STREAM_PACING_MBIT=90` → 1440p → a gigabit box ([stutter](../../docs/troubleshooting.md#stream-stutter-on-smart-tvs)). One change per test session.
+   - **Stutter / fps drops on a smart TV** → keyframe bursts. Measure with `lgtv-stream-stats start/stop` (LG) and read "Stream quality" in the report. Fix order: decoder NDL (+ start at 40 Mbps on an unknown TV, raise while drops stay ~0; 60 verified on the reference LG) → `SUNSHINE_STRICT_RC` → `STREAM_PACING_MBIT=90` → 1440p → a gigabit box ([stutter](../../docs/troubleshooting.md#stream-stutter-on-smart-tvs)). One change per test session.
    - **Controller ~1 s dropouts** (`failed to send FF report`) → `extras/xbox-controller-bluetooth` (`sudo ./apply.sh`), then a btmon capture if they continue.
    - **Other controller problems** → firmware, antennas, rear USB, pair with the PC.
 4. **If the logs don't explain it:**

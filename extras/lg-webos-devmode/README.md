@@ -54,7 +54,7 @@ Use it to compare settings; see [Stream stutter on smart TVs](../../docs/trouble
 
 ## Moonlight TV settings that worked well
 - Resolution 3840x2160 and 60 fps. The codec picks HEVC automatically.
-- **Bitrate ~40 Mbps** and decoder **NDL** (not Auto), together with `SUNSHINE_STRICT_RC="yes"` on the PC: verified 0 dropped packets in 39 min (versus 170/min at 55 Mbps with Auto). LG TVs have **100 Mb/s Ethernet** and weak SoCs.
+- Decoder **NDL** (not Auto) together with `SUNSHINE_STRICT_RC="yes"` on the PC, and **60 Mbps**: verified 0 dropped packets in 46 min (versus 170/min at 55 Mbps with decoder Auto). On another LG model start at 40 and raise it while `lgtv-stream-stats` stays at ~0. LG TVs have **100 Mb/s Ethernet** and weak SoCs.
 - HDR off unless your PC streams HDR.
 - This version has **no stats overlay**. Check bitrate on the PC side instead, e.g. in Sunshine's log ("Streaming bitrate is …").
 - **The TV's Bluetooth adds noticeable input lag** for controllers. Pairing the controller with the PC was much better. If you do that, set `BLOCK_CLIENT_CONTROLLER="yes"`.

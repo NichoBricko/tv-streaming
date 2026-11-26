@@ -6,7 +6,7 @@ Sunshine works with any Moonlight client. What differs between TVs is how Moonli
 | TV / device | Moonlight client | How to install | Claude can do it | Notes |
 |---|---|---|---|---|
 | **Android TV / Google TV**: Sony, TCL, Philips, Sharp, Xiaomi, Hisense (Android models); **Nvidia Shield**, **Google TV Streamer**, Chromecast with Google TV | Moonlight Game Streaming (official) | Google Play Store, or the APK from [moonlight-android releases](https://github.com/moonlight-stream/moonlight-android/releases) | **Yes** via `adb` ([below](#android-tv--google-tv--fire-os-via-adb)) | Easiest platform; `adb logcat` shows Moonlight's own log. Shield and Google TV Streamer have gigabit Ethernet; most TVs 100 Mb/s. |
-| **LG webOS** (webOS 3+) | [Moonlight TV](https://github.com/mariotaku/moonlight-tv) (community) | Sideload via LG Developer Mode | **Yes** via LG's `ares` tools: [extras/lg-webos-devmode](../extras/lg-webos-devmode/README.md) | Developer Mode must be renewed (automated). 100 Mb/s Ethernet, weak SoC: use **~40 Mbps**, the NDL decoder, and measure with `lgtv-stream-stats` ([stutter](troubleshooting.md#stream-stutter-on-smart-tvs)). The TV's Bluetooth added noticeable controller lag. Standby drops off the network (verified). |
+| **LG webOS** (webOS 3+) | [Moonlight TV](https://github.com/mariotaku/moonlight-tv) (community) | Sideload via LG Developer Mode | **Yes** via LG's `ares` tools: [extras/lg-webos-devmode](../extras/lg-webos-devmode/README.md) | Developer Mode must be renewed (automated). 100 Mb/s Ethernet, weak SoC: use decoder **NDL** + `SUNSHINE_STRICT_RC`; **60 Mbps** verified on the reference TV (start at 40 on an unknown TV); measure with `lgtv-stream-stats` ([stutter](troubleshooting.md#stream-stutter-on-smart-tvs)). The TV's Bluetooth added noticeable controller lag. Standby drops off the network (verified). |
 | **Samsung Tizen** (2020+, Tizen 5.5+) | [Moonlight for Tizen](https://github.com/brightcraft/moonlight-tizen) (community) | Developer Mode on the TV, then **Apps2Samsung** (easiest) or Tizen Studio / `sdb`; follow the project's [Installation Guide](https://github.com/brightcraft/moonlight-tizen/wiki/Installation-Guide) | Partly (guided; the certificate step is manual) | Steps change between Tizen versions. Turn off "Instant On" if the TV answers pings in standby. |
 | **Apple TV 4K** (2021+) | Moonlight Game Streaming (official) | App Store | No (manual) | 128 GB model has gigabit Ethernet (the 3rd-gen 64 GB has none). Good controller support. |
 | **Amazon Fire TV on Fire OS**: Fire TV Stick 4K / 4K Max (older generations), Fire TV Cube, Fire OS TVs | Moonlight (Android build) | Amazon Appstore, or APK via `adb` | **Yes** via `adb` | Sticks have no Ethernet; use a USB Ethernet adapter for stable 4K. |
@@ -32,12 +32,12 @@ Claude (or you) can install and launch Moonlight from the PC:
 ## Recommended Moonlight settings
 - **Resolution / fps:** your TV's native resolution, usually **3840x2160 @ 60**.
 - **Bitrate:**
-  - **~40 Mbps** on smart TVs with 100 Mb/s Ethernet (verified: 0 dropped packets in 39 min on the reference LG, versus 170/min at 55 Mbps; Moonlight TV's FAQ calls 35–40 the webOS sweet spot). To find your TV's ceiling, try 45, then 50, measuring each with `lgtv-stream-stats`;
+  - smart TVs with 100 Mb/s Ethernet: **60 Mbps** with decoder **NDL** and `SUNSHINE_STRICT_RC="yes"` (verified on the reference LG: 0 dropped packets in 46 min incl. fast driving, versus 170/min at 55 Mbps with decoder Auto). On an unknown TV start at **40** (Moonlight TV's FAQ calls 35–40 the webOS sweet spot), then raise it while `lgtv-stream-stats` stays at ~0 drops;
   - **80–150 Mbps** on gigabit boxes;
   - Wi-Fi: 5 GHz only, start around 40.
 - **Codec:** HEVC (Auto usually picks it). HDR off unless the PC streams HDR.
 - **LG webOS decoder:** set **NDL** explicitly rather than Auto (Moonlight TV: NDL always performs better than SMP).
-- **Picture vs. bitrate:** at 40 Mbps about 31 Mbps goes to the video. 4K60 looks clean, but fine detail in fast motion is softer. **1440p** at the same bitrate is sharper in motion (the TV upscales).
+- **Picture vs. bitrate:** about 13 Mbps goes to error correction and audio: 60 Mbps → ~47 Mbps of video ("very clear" on the reference TV), 40 → ~31 (clean, softer in fast motion). If your TV only manages 40, **1440p** is sharper in motion at that bitrate (the TV upscales).
 - **Network:** wired Ethernet on both ends if at all possible.
 - **TV picture mode:** **Game / Game Optimizer**.
 

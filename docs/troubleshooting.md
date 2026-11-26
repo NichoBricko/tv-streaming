@@ -40,21 +40,20 @@ Measured on the reference LG (webOS 22, 4× Cortex-A55, 100 Mb/s port) during a 
 
 Keyframes leave the PC at line rate. A TV port or SoC can't absorb the burst, and one lost packet breaks the frame. The TV's background services were *not* busy: 5% CPU at idle.
 
-**Verified fix on the reference setup:** Moonlight **40 Mbps** + decoder **NDL** + `SUNSHINE_STRICT_RC="yes"`. Measured with `lgtv-stream-stats`:
+**Verified fix on the reference setup:** decoder **NDL** + `SUNSHINE_STRICT_RC="yes"`; the bitrate was *not* the cause, and **60 Mbps** runs clean. Measured with `lgtv-stream-stats`:
 
 | Settings | Duration | TV drops | Oversized frames without FEC |
 |---|---|---|---|
 | 4K, 55 Mbps, decoder auto, default rate control | 23 min | **170 / min** | 8 |
 | 4K, **40 Mbps, NDL, strict rate control** | 39 min | **0** | 0 |
+| 4K, **60 Mbps, NDL, strict rate control** | 46 min (incl. fast driving) | **0** | 0 |
 
-All three were changed together, so which one matters most isn't isolated. Pacing (step 3) wasn't needed.
-
-On the reference TV, gameplay at 40 and 60 Mbps (with NDL + strict rate control) showed 0 drops in 85 min, including fast driving. The remaining drops (~8k) happened around **stream starts / loading in** - to see when, run `lgtv-stream-stats watch` before connecting.
+Whether NDL or the strict rate control matters more isn't isolated (they were switched on together). Pacing (step 3) wasn't needed. The remaining drops (~8k) happened around **stream starts / loading in**, outside the measured windows; to see them, run `lgtv-stream-stats watch` before connecting.
 
 **Measure** (LG with the [Developer Mode extra](../extras/lg-webos-devmode/README.md)): run `lgtv-stream-stats start`, play 15 min, then `lgtv-stream-stats stop`. That gives drops per minute. Change one thing at a time, in this order:
 1. **Moonlight:**
-   - bitrate **~40 Mbps** (the Moonlight TV FAQ's sweet spot for webOS; many 2021–23 LG TVs only decode HEVC level 5.1, about 40 Mbps);
-   - decoder **NDL** (Settings → About);
+   - decoder **NDL** explicitly, not Auto;
+   - bitrate: on an unknown TV start at **40 Mbps** (the Moonlight TV FAQ's sweet spot for webOS), then raise it while the drops stay at ~0 (60 was clean on the reference LG);
    - HDR off;
    - the TV **not** also on Wi-Fi.
 2. **`SUNSHINE_STRICT_RC="yes"`**: smaller keyframes at scene changes (AMD/Intel).
