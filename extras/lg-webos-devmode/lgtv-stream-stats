@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# lgtv-stream-stats start|stop|now
+#
+# Measure how many stream packets an LG webOS TV drops, to compare settings
+# objectively instead of judging stutter by eye. Read-only on the TV (Developer
+# Mode SSH via ares-novacom).
+#
+#   start  remember the TV's counters (and the time) - run before playing
+#   stop   print what was dropped since "start", per minute, plus the PC side
+#   now    print the TV's raw counters
+#
+# What the numbers mean:
+#   UDP RcvbufErrors  packets that reached the TV but Moonlight didn't read in time
+#                     (receive buffer overflow) -> broken frames / stutter
+#   eth0 rx_dropped   packets the TV's network port itself dropped
+#   FEC skipped       (PC, Sunshine log) frames too large for error correction -
+#                     a single lost packet breaks them
+# Counters reset when the TV fully reboots; "stop" detects that.
+
+set -u
+ARES=$(command -v ares-novacom || echo ~/.local/bin/ares-novacom)
+DEVICE=${LGTV_DEVICE:-lgtv}
+STATE=${XDG_RUNTIME_DIR:-/tmp}/lgtv-stream-stats.start
+CONFIG=${SOD_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/sunshine-on-demand/config.env}
+# shellcheck source=/dev/null
+[[ -r $CONFIG ]] && . "$CONFIG"
+UNIT=${SUNSHINE_UNIT:-app-dev.lizardbyte.app.Sunshine.service}
+
+# prints: uptime_s in_datagrams rcvbuf_errors eth_rx_dropped eth_rx_packets
+read_tv() {
+  (cd ~ && timeout 30 "$ARES" -d "$DEVICE" --run '
+    set -- $(awk "/^Udp:/{n++; if(n==2){print \$2, \$6}}" /proc/net/snmp)
+    up=$(cut -d" " -f1 /proc/uptime); up=${up%.*}
+    d=$(cat /sys/class/net/eth0/statistics/rx_dropped 2>/dev/null || echo 0)
+    p=$(cat /sys/class/net/eth0/statistics/rx_packets 2>/dev/null || echo 0)
+    echo "$up $1 $2 $d $p"' 2>/dev/null) | grep -E '^[0-9]+ [0-9]+ [0-9]+ [0-9]+ [0-9]+$'
+}
+
+case "${1:-now}" in
+  start)
+    v=$(read_tv) || { echo "TV not reachable (on? Developer Mode on? device '$DEVICE')" >&2; exit 1; }
+    echo "$(date +%s) $v" > "$STATE"
+    echo "Started. Play now, then run: $(basename "$0") stop"
+    ;;
+  stop)
+    [[ -r $STATE ]] || { echo "run '$(basename "$0") start' first" >&2; exit 1; }
+    read -r t0 up0 in0 rb0 dr0 pk0 < "$STATE"
+    v=$(read_tv) || { echo "TV not reachable" >&2; exit 1; }
+    read -r up1 in1 rb1 dr1 pk1 <<< "$v"
+    t1=$(date +%s); mins=$(( (t1 - t0 + 30) / 60 )); (( mins < 1 )) && mins=1
+    if (( up1 < up0 )); then echo "The TV rebooted during the measurement - counters were reset; start again." >&2; exit 1; fi
+    rb=$((rb1 - rb0)); in=$((in1 - in0)); dr=$((dr1 - dr0))
+    fec=$(journalctl --user -u "$UNIT" --since "@$t0" --no-pager -o cat 2>/dev/null | grep -c 'Skipping FEC for abnormally large')
+    echo "Measured ${mins} min ($(date -d "@$t0" +%H:%M)-$(date -d "@$t1" +%H:%M))"
+    printf '  TV: packets received      %12d\n' "$in"
+    printf '  TV: dropped (buffer full) %12d   = %d per minute   (%s%%)\n' "$rb" $(( rb / mins )) \
+      "$(awk -v a="$rb" -v b="$in" 'BEGIN{ if (b>0) printf "%.3f", 100*a/b; else print "0" }')"
+    printf '  TV: dropped by network port %10d\n' "$dr"
+    printf '  PC: oversized frames sent without FEC %d\n' "$fec"
+    rm -f "$STATE"
+    ;;
+  now)
+    v=$(read_tv) || { echo "TV not reachable" >&2; exit 1; }
+    read -r up in rb dr pk <<< "$v"
+    echo "TV uptime ${up}s | UDP in $in | UDP RcvbufErrors $rb | eth0 rx_dropped $dr (of $pk)"
+    ;;
+  *) echo "usage: $0 start|stop|now" >&2; exit 2 ;;
+esac

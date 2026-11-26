@@ -445,6 +445,7 @@ cmd_extra() {
     lg-webos-devmode)
       has ares-novacom || [[ -x $BIN_DIR/ares-novacom ]] || warn "ares-novacom not found - see extras/lg-webos-devmode/README.md"
       link "$REPO/extras/lg-webos-devmode/lgtv-devmode-extend" "$BIN_DIR/lgtv-devmode-extend"
+      link "$REPO/extras/lg-webos-devmode/lgtv-stream-stats" "$BIN_DIR/lgtv-stream-stats"
       for u in lgtv-devmode-extend.service lgtv-devmode-extend.timer; do link "$REPO/extras/lg-webos-devmode/$u" "$UNIT_DIR/$u"; done
       run systemctl --user daemon-reload
       run systemctl --user enable --now lgtv-devmode-extend.timer ;;
@@ -499,6 +500,13 @@ cmd_report() {
     echo; echo "## User: TV session and helpers"
     journalctl --user -b "$boot" --no-pager -o short-iso -t sunshine-tv-session -t sunshine-on-demand -t sunshine-session-lock \
       -t sunshine-display-mode -t sunshine-steam-reset -t sunshine-idle-stop -t sunshine-open-app 2>/dev/null
+    echo; echo "## Stream quality"
+    echo "Oversized frames sent without FEC this boot: $(journalctl --user -b "$boot" -u "$u" --no-pager -o cat 2>/dev/null | grep -c 'Skipping FEC for abnormally large')"
+    if [[ -x $BIN_DIR/lgtv-stream-stats ]]; then
+      echo "LG TV counters (cumulative since the TV booted): $("$BIN_DIR/lgtv-stream-stats" now 2>&1)"
+    fi
+    echo; echo "## Controller (Bluetooth reconnects this boot)"
+    journalctl -k -b "$boot" --no-pager -o short-iso 2>/dev/null | grep -E 'input: .*(Xbox|Controller|Gamepad)|failed to send FF report' | cut -c1-150
     echo; echo "## Sunshine: lifecycle, client requests and sessions (set SUNSHINE_LOG_LEVEL=debug for every request)"
     journalctl --user -b "$boot" -u "$u" --no-pager -o short-iso 2>/dev/null | grep -E 'Started|Stopp|CLIENT|session|Executing|Error|Fatal|Warning|/(serverinfo|pair|applist|launch|resume|cancel|appasset)|TUNNEL|Client|client' \
       | grep -vE 'Found interface|config:' | cut -c1-260
