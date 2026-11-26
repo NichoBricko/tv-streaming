@@ -7,7 +7,7 @@
 | Motherboard | ASUS PRIME B850M-F WIFI: Realtek r8169 Ethernet, Realtek RTL8851BE Wi-Fi + RTL8851BU Bluetooth |
 | Monitor | Acer VG240Y V, 1920x1080 @ 165 Hz (accepts a 3840x2160 @ 60 signal and downscales it) |
 | TV | LG 55NANO766QA, webOS 22, 100 Mb/s Ethernet |
-| Client | Moonlight TV 1.6.36, sideloaded via Developer Mode |
+| Client | Moonlight TV 1.6.36, sideloaded via Developer Mode; 4K60, **40 Mbps, HEVC, decoder NDL** |
 | Controller | Xbox Series X\|S, Bluetooth to the PC |
 | Sunshine | CachyOS package, service `app-dev.lizardbyte.app.Sunshine.service`, VAAPI HEVC, KMS capture (`setcap`) |
 | Firewall | ufw |
@@ -22,6 +22,8 @@
 - Wake packets with the wrong MAC or from another IP were ignored (local test).
 - **Cold boot, one Wake press (TV session):** power-on → login screen at 6 s → network at 11 s → TV detected by ping at 12 s → locked TV session at 13 s → stream unlocked it and started Steam Big Picture on request. Power button with the TV off → normal login screen. The board reports SMBIOS Wake-up Type "Power Switch" for every boot, so the boot-reason trigger never fires here; the TV ping does.
 - Robustness: exiting Steam/Big Picture during or after a stream ends the TV session cleanly; a Wake brings it back (second-Wake trigger at the login screen).
+- **Stream stutter fixed:** 4K60 at 55 Mbps showed 170 TV buffer drops/min and sporadic fps dips. **40 Mbps + NDL + strict rate control** gave 0 drops in 39 min, and it felt smooth.
+- **Controller dropouts:** about one every 18 min before; 0 in 71 min after `extras/xbox-controller-bluetooth` (BlueZ LE parameters, btusb autosuspend off, Wi-Fi radio off).
 
 ## Lessons learned
 - **The Moonlight default bitrate is low.** At ~7 Mbps a 4K picture looks blocky. Set 50–65 Mbps.

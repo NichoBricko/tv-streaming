@@ -40,6 +40,15 @@ Measured on the reference LG (webOS 22, 4× Cortex-A55, 100 Mb/s port) during a 
 
 Keyframes leave the PC at line rate. A TV port or SoC can't absorb the burst, and one lost packet breaks the frame. The TV's background services were *not* busy: 5% CPU at idle.
 
+**Verified fix on the reference setup:** Moonlight **40 Mbps** + decoder **NDL** + `SUNSHINE_STRICT_RC="yes"`. Measured with `lgtv-stream-stats`:
+
+| Settings | Duration | TV drops | Oversized frames without FEC |
+|---|---|---|---|
+| 4K, 55 Mbps, decoder auto, default rate control | 23 min | **170 / min** | 8 |
+| 4K, **40 Mbps, NDL, strict rate control** | 39 min | **0** | 0 |
+
+All three were changed together, so which one matters most isn't isolated. Pacing (step 3) wasn't needed.
+
 **Measure** (LG with the [Developer Mode extra](../extras/lg-webos-devmode/README.md)): run `lgtv-stream-stats start`, play 15 min, then `lgtv-stream-stats stop`. That gives drops per minute. Change one thing at a time, in this order:
 1. **Moonlight:**
    - bitrate **~40 Mbps** (the Moonlight TV FAQ's sweet spot for webOS; many 2021–23 LG TVs only decode HEVC level 5.1, about 40 Mbps);

@@ -32,10 +32,12 @@ Claude (or you) can install and launch Moonlight from the PC:
 ## Recommended Moonlight settings
 - **Resolution / fps:** your TV's native resolution, usually **3840x2160 @ 60**.
 - **Bitrate:**
-  - **~40 Mbps** on smart TVs with 100 Mb/s Ethernet (55 stuttered sporadically on the reference LG; Moonlight TV's FAQ calls 35–40 the webOS sweet spot);
+  - **~40 Mbps** on smart TVs with 100 Mb/s Ethernet (verified: 0 dropped packets in 39 min on the reference LG, versus 170/min at 55 Mbps; Moonlight TV's FAQ calls 35–40 the webOS sweet spot). To find your TV's ceiling, try 45, then 50, measuring each with `lgtv-stream-stats`;
   - **80–150 Mbps** on gigabit boxes;
   - Wi-Fi: 5 GHz only, start around 40.
 - **Codec:** HEVC (Auto usually picks it). HDR off unless the PC streams HDR.
+- **LG webOS decoder:** set **NDL** explicitly rather than Auto (Moonlight TV: NDL always performs better than SMP).
+- **Picture vs. bitrate:** at 40 Mbps about 31 Mbps goes to the video. 4K60 looks clean, but fine detail in fast motion is softer. **1440p** at the same bitrate is sharper in motion (the TV upscales).
 - **Network:** wired Ethernet on both ends if at all possible.
 - **TV picture mode:** **Game / Game Optimizer**.
 
