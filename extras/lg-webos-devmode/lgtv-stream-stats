@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lgtv-stream-stats start|stop|now
+# lgtv-stream-stats start|stop|now|watch [seconds] [minutes]
 #
 # Measure how many stream packets an LG webOS TV drops, to compare settings
 # objectively instead of judging stutter by eye. Read-only on the TV (Developer
@@ -8,6 +8,9 @@
 #   start  remember the TV's counters (and the time) - run before playing
 #   stop   print what was dropped since "start", per minute, plus the PC side
 #   now    print the TV's raw counters
+#   watch  print a timestamped line whenever drops happen (default: check every
+#          10 s for 60 min; Ctrl+C to end). Start it BEFORE connecting the
+#          stream to also catch stream starts and loading screens.
 #
 # What the numbers mean:
 #   UDP RcvbufErrors  packets that reached the TV but Moonlight didn't read in time
@@ -59,10 +62,29 @@ case "${1:-now}" in
     printf '  PC: oversized frames sent without FEC %d\n' "$fec"
     rm -f "$STATE"
     ;;
+  watch)
+    every=${2:-10}; mins=${3:-60}; end=$(( $(date +%s) + mins * 60 ))
+    v=$(read_tv) || { echo "TV not reachable" >&2; exit 1; }
+    read -r _ _ prb pdr _ <<< "$v"; total=0
+    echo "$(date +%T) watching every ${every}s for ${mins} min - drops are printed as they happen (Ctrl+C to end)"
+    trap 'echo "$(date +%T) total dropped while watching: $total"; exit 0' INT TERM
+    while (( $(date +%s) < end )); do
+      sleep "$every"
+      v=$(read_tv) || { echo "$(date +%T) TV not reachable"; continue; }
+      read -r up in rb dr _ <<< "$v"
+      if (( rb < prb )); then echo "$(date +%T) TV rebooted - counters reset"; prb=$rb; pdr=$dr; continue; fi
+      if (( rb > prb || dr > pdr )); then
+        echo "$(date +%T) DROPPED $((rb - prb)) (buffer full), $((dr - pdr)) (network port)"
+        total=$(( total + rb - prb + dr - pdr ))
+      fi
+      prb=$rb; pdr=$dr
+    done
+    echo "$(date +%T) total dropped while watching: $total"
+    ;;
   now)
     v=$(read_tv) || { echo "TV not reachable" >&2; exit 1; }
     read -r up in rb dr pk <<< "$v"
     echo "TV uptime ${up}s | UDP in $in | UDP RcvbufErrors $rb | eth0 rx_dropped $dr (of $pk)"
     ;;
-  *) echo "usage: $0 start|stop|now" >&2; exit 2 ;;
+  *) echo "usage: $0 start|stop|now|watch [seconds] [minutes]" >&2; exit 2 ;;
 esac

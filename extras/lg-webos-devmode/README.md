@@ -48,6 +48,7 @@ Remove it with `systemctl --user disable --now lgtv-devmode-extend.timer` and de
 ```
 lgtv-stream-stats start     # before playing
 lgtv-stream-stats stop      # after ~15 min: TV buffer overflows / port drops per minute + PC frames sent without FEC
+lgtv-stream-stats watch     # timestamped line whenever drops happen (start BEFORE connecting to catch stream starts)
 ```
 Use it to compare settings; see [Stream stutter on smart TVs](../../docs/troubleshooting.md#stream-stutter-on-smart-tvs).
 

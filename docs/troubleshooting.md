@@ -49,6 +49,8 @@ Keyframes leave the PC at line rate. A TV port or SoC can't absorb the burst, an
 
 All three were changed together, so which one matters most isn't isolated. Pacing (step 3) wasn't needed.
 
+On the reference TV, gameplay at 40 and 60 Mbps (with NDL + strict rate control) showed 0 drops in 85 min, including fast driving. The remaining drops (~8k) happened around **stream starts / loading in** - to see when, run `lgtv-stream-stats watch` before connecting.
+
 **Measure** (LG with the [Developer Mode extra](../extras/lg-webos-devmode/README.md)): run `lgtv-stream-stats start`, play 15 min, then `lgtv-stream-stats stop`. That gives drops per minute. Change one thing at a time, in this order:
 1. **Moonlight:**
    - bitrate **~40 Mbps** (the Moonlight TV FAQ's sweet spot for webOS; many 2021–23 LG TVs only decode HEVC level 5.1, about 40 Mbps);
