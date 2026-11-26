@@ -217,12 +217,13 @@ configure_sunshine_conf() {
   local enc=""; [[ $REQUIRE_ENCRYPTION == yes ]] && enc=2
   local web=""; [[ $WEB_UI_LOCAL_ONLY == yes ]] && web=pc
   if [[ $DRY == yes ]]; then
-    info "[dry-run] sunshine.conf: keyboard=$kbm mouse=$kbm controller=$ctrl lan_encryption_mode=${enc:-default} origin_web_ui_allowed=${web:-default} encoder=${SUNSHINE_ENCODER:-auto} capture=${SUNSHINE_CAPTURE:-auto} adapter_name=${SUNSHINE_ADAPTER:-auto} min_log_level=${SUNSHINE_LOG_LEVEL:-default}"
+    info "[dry-run] sunshine.conf: keyboard=$kbm mouse=$kbm controller=$ctrl lan_encryption_mode=${enc:-default} origin_web_ui_allowed=${web:-default} encoder=${SUNSHINE_ENCODER:-auto} capture=${SUNSHINE_CAPTURE:-auto} adapter_name=${SUNSHINE_ADAPTER:-auto} min_log_level=${SUNSHINE_LOG_LEVEL:-default} vaapi_strict_rc_buffer=${SUNSHINE_STRICT_RC:-no}"
     return
   fi
   python3 -I - "$f" keyboard="$kbm" mouse="$kbm" controller="$ctrl" lan_encryption_mode="$enc" \
     origin_web_ui_allowed="$web" encoder="${SUNSHINE_ENCODER:-}" capture="${SUNSHINE_CAPTURE:-}" \
-    adapter_name="${SUNSHINE_ADAPTER:-}" min_log_level="${SUNSHINE_LOG_LEVEL:-}" <<'EOF'
+    adapter_name="${SUNSHINE_ADAPTER:-}" min_log_level="${SUNSHINE_LOG_LEVEL:-}" \
+    vaapi_strict_rc_buffer="$([[ ${SUNSHINE_STRICT_RC:-no} == yes ]] && echo enabled)" <<'EOF'
 import re, sys
 path, pairs = sys.argv[1], [a.split("=", 1) for a in sys.argv[2:]]
 lines = open(path).read().splitlines()
@@ -348,8 +349,9 @@ firewall_rules() {  # firewall_rules add|delete
 install_system() {
   say "System units (sudo)"
   local tmp; tmp=$(mktemp)
-  printf 'WOL_MAC=%s\nCLIENT_IP=%s\nSUNSHINE_UNIT=%s\nSOD_USER=%s\nTV_AUTOLOGIN=%s\nTV_WAKE_TYPES="%s"\nTV_CLIENT_CHECK_SECONDS=%s\n' \
-    "$WOL_MAC" "$CLIENT_IP" "$SUNSHINE_UNIT" "$(id -un)" "$TV_AUTOLOGIN" "$TV_WAKE_TYPES" "$TV_CLIENT_CHECK_SECONDS" > "$tmp"
+  printf 'WOL_MAC=%s\nCLIENT_IP=%s\nSUNSHINE_UNIT=%s\nSOD_USER=%s\nTV_AUTOLOGIN=%s\nTV_WAKE_TYPES="%s"\nTV_CLIENT_CHECK_SECONDS=%s\nSTREAM_IFACE=%s\nSTREAM_PACING_MBIT=%s\n' \
+    "$WOL_MAC" "$CLIENT_IP" "$SUNSHINE_UNIT" "$(id -un)" "$TV_AUTOLOGIN" "$TV_WAKE_TYPES" "$TV_CLIENT_CHECK_SECONDS" \
+    "${STREAM_IFACE:-$WOL_IFACE}" "${STREAM_PACING_MBIT:-}" > "$tmp"
   sudo_run install -m 644 "$tmp" "$SYS_ENV"; rm -f "$tmp"
   sudo_run install -D -m 755 "$REPO/lib/sunshine-wol-handler.py" "$SYS_LIB/sunshine-wol-handler.py"
   sudo_run install -m 644 "$REPO/systemd/system/sunshine-wol.socket" /etc/systemd/system/sunshine-wol.socket
@@ -365,6 +367,7 @@ install_system() {
   fi
 
   install_tv_session
+  install_stream_pacing
 
   say "Firewall ($FIREWALL): only $CLIENT_IP may reach Sunshine"
   firewall_rules add
@@ -381,6 +384,26 @@ install_system() {
   fi
   [[ $SETCAP == yes ]] && cmd_setcap
   return 0
+}
+
+install_stream_pacing() {
+  local u=/etc/systemd/system/sunshine-stream-pacing.service d=/etc/NetworkManager/dispatcher.d/90-sunshine-stream-pacing
+  if [[ -z ${STREAM_PACING_MBIT:-} ]]; then
+    if [[ -e $u ]]; then
+      say "Removing stream pacing"
+      sudo_run systemctl disable --now sunshine-stream-pacing.service 2>/dev/null || true
+      sudo_run rm -f "$u" "$d" "$SYS_LIB/sunshine-stream-pacing"
+      sudo_run systemctl daemon-reload
+    fi
+    return 0
+  fi
+  say "Stream pacing: Sunshine video paced to ${STREAM_PACING_MBIT} Mbit/s on ${STREAM_IFACE:-$WOL_IFACE}"
+  sudo_run install -D -m 755 "$REPO/lib/sunshine-stream-pacing" "$SYS_LIB/sunshine-stream-pacing"
+  sudo_run install -m 644 "$REPO/systemd/system/sunshine-stream-pacing.service" "$u"
+  if [[ -d /etc/NetworkManager/dispatcher.d ]]; then sudo_run install -m 755 "$REPO/lib/90-sunshine-stream-pacing" "$d"; fi
+  sudo_run systemctl daemon-reload
+  sudo_run systemctl enable sunshine-stream-pacing.service
+  sudo_run systemctl restart sunshine-stream-pacing.service
 }
 
 install_tv_session() {
@@ -469,7 +492,7 @@ cmd_status() {
     info "$s: $(systemctl --user is-enabled "$s" 2>/dev/null || true) / $(systemctl --user is-active "$s" 2>/dev/null || true)"
   done
   say "System units"
-  for s in sunshine-wol.socket sunshine-resume.service sunshine-tv-autologin.service sunshine-tv-clientcheck.service sunshine-tv-wake.path; do
+  for s in sunshine-wol.socket sunshine-resume.service sunshine-tv-autologin.service sunshine-tv-clientcheck.service sunshine-tv-wake.path sunshine-stream-pacing.service; do
     info "$s: $(systemctl is-enabled "$s" 2>/dev/null || true) / $(systemctl is-active "$s" 2>/dev/null || true)"
   done
   if [[ -n ${NM_CONNECTION:-} ]] && has nmcli; then
@@ -537,6 +560,7 @@ cmd_uninstall() {
   info "To start Sunshine at login again: systemctl --user enable $SUNSHINE_UNIT"
   say "System side (sudo)"
   remove_tv_session
+  STREAM_PACING_MBIT="" install_stream_pacing
   sudo_run systemctl disable --now sunshine-wol.socket sunshine-resume.service 2>/dev/null || true
   sudo_run rm -f /etc/systemd/system/sunshine-wol.socket /etc/systemd/system/sunshine-wol.service \
     /etc/systemd/system/sunshine-resume.service "$SYS_ENV"

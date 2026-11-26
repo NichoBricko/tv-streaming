@@ -1,0 +1,15 @@
+[Unit]
+Description=Pace Sunshine's video stream (UDP 47998) for TVs with 100 Mb/s ports
+After=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# STREAM_IFACE, STREAM_PACING_MBIT
+EnvironmentFile=/etc/sunshine-on-demand.env
+ExecStart=/usr/local/lib/sunshine-on-demand/sunshine-stream-pacing apply ${STREAM_IFACE} ${STREAM_PACING_MBIT}
+ExecStop=/usr/local/lib/sunshine-on-demand/sunshine-stream-pacing remove ${STREAM_IFACE}
+
+[Install]
+WantedBy=multi-user.target

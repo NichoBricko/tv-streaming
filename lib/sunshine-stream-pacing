@@ -1,0 +1,41 @@
+#!/bin/sh
+# sunshine-stream-pacing apply <iface> <mbit> | remove <iface> | show <iface>
+#
+# Paces ONLY Sunshine's video stream (UDP from port 47998) to <mbit> Mbit/s, so
+# keyframes leave the PC as an even flow instead of a line-rate burst. TVs with a
+# 100 Mb/s port (most smart TVs) otherwise overflow on every keyframe: the switch
+# or the TV's receive buffer drops the burst and the picture stutters.
+# All other traffic goes to an unshaped default class with fq_codel (the usual
+# Linux default), so downloads, games and LAN copies are unaffected.
+#
+# Run as root (sunshine-stream-pacing.service). "remove" restores the default qdisc.
+
+set -eu
+ACTION=${1:-}; IF=${2:-}; MBIT=${3:-}
+PORT=${SUNSHINE_VIDEO_PORT:-47998}
+[ -n "$IF" ] || { echo "usage: $0 apply <iface> <mbit> | remove <iface> | show <iface>" >&2; exit 2; }
+
+case "$ACTION" in
+  apply)
+    case "$MBIT" in ''|*[!0-9]*) echo "mbit must be a number" >&2; exit 2 ;; esac
+    tc qdisc replace dev "$IF" root handle 1: htb default 10
+    tc class replace dev "$IF" parent 1: classid 1:1 htb rate 10gbit
+    # default class: everything else, unshaped
+    tc class replace dev "$IF" parent 1:1 classid 1:10 htb rate 10gbit
+    tc qdisc replace dev "$IF" parent 1:10 handle 10: fq_codel
+    # Sunshine video: paced, small bursts (a few packets)
+    tc class replace dev "$IF" parent 1:1 classid 1:20 htb rate "${MBIT}mbit" ceil "${MBIT}mbit" burst 6k cburst 6k
+    tc qdisc replace dev "$IF" parent 1:20 handle 20: fq_codel
+    tc filter replace dev "$IF" parent 1: protocol ip prio 1 handle 800::800 u32 \
+      match ip protocol 17 0xff match ip sport "$PORT" 0xffff flowid 1:20
+    echo "sunshine-stream-pacing: $IF: UDP sport $PORT paced to ${MBIT} Mbit/s"
+    ;;
+  remove)
+    tc qdisc del dev "$IF" root 2>/dev/null || true
+    echo "sunshine-stream-pacing: $IF: back to the default queue"
+    ;;
+  show)
+    tc -s class show dev "$IF"
+    ;;
+  *) echo "usage: $0 apply <iface> <mbit> | remove <iface> | show <iface>" >&2; exit 2 ;;
+esac

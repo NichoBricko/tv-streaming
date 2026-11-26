@@ -1,0 +1,7 @@
+#!/bin/sh
+# NetworkManager dispatcher: re-apply Sunshine stream pacing when the streaming
+# interface comes up (a re-created interface loses its queueing setup).
+[ "$2" = up ] || exit 0
+. /etc/sunshine-on-demand.env 2>/dev/null || exit 0
+[ "$1" = "${STREAM_IFACE:-}" ] && [ -n "${STREAM_PACING_MBIT:-}" ] || exit 0
+systemctl restart sunshine-stream-pacing.service
