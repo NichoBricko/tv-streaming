@@ -11,6 +11,8 @@ journalctl -k -b | grep -E 'failed to send FF report|input: Xbox Wireless Contro
 - **Wi-Fi + Bluetooth combo chips share one antenna.** If Wi-Fi is enabled but unused, its background scans still steal airtime from Bluetooth.
 - **Bluetooth USB autosuspend** (`btusb`): rarely the cause, but cheap to rule out.
 
+> ⚠️ **Known problem (open): after `apply.sh`, new pairings and reconnects can fail completely.** See [below](#known-problem-the-pc-cant-connect-to-the-controller-any-more). Until it's resolved, prefer `--keep-wifi`, and run `revert.sh` first if the controller stops connecting.
+
 ## Fix (free, reversible)
 ```bash
 sudo ./apply.sh --dry-run    # preview
@@ -29,6 +31,27 @@ btmon -r ~/btmon-session.snoop | grep -B2 -A6 'Disconnect Complete'
 The `Reason:` field says why:
 - **Connection Timeout (0x08)** = the radio link was lost: placement, interference, antenna;
 - **Remote User Terminated (0x13)** = the controller ended it itself, e.g. idle power-off or low battery.
+
+## Known problem: the PC can't connect to the controller any more
+**Seen on the reference PC (onboard Realtek RTL8851BE/BU Wi-Fi + Bluetooth combo, BlueZ 5.88, kernel 7.3.6), 2026-11-27, about one day after `apply.sh`.** Status: **open**, root cause not isolated.
+
+- **Symptom:** KDE "Connect" fails instantly ("could not connect"); after removing the device, pairing fails with `org.bluez.Error.AuthenticationCanceled`. The controller advertises with a strong signal (about −49 dBm), the PC opens a connection, and about 50 ms later it ends with **`Connection Failed to be Established (0x3e)`** (`btmon`). 36 of 36 attempts failed. The same controller paired with a phone instantly, so it was the PC side.
+- **Ruled out:**
+  - the TV (off);
+  - controller batteries and a controller reset;
+  - signal strength;
+  - scanning during the connection;
+  - the `[LE]` parameters alone (default `main.conf` + `modprobe -r btusb && modprobe btusb` still failed);
+  - kernel, firmware and BlueZ updates (identical to the last working boot).
+- **What fixed it:** `revert.sh` + `nmcli radio wifi on` + driver reload + restarting bluetooth and NetworkManager. The controller paired at once. That leaves two suspects:
+  - **the Wi-Fi radio being off** (on a combo chip, Bluetooth and Wi-Fi share the radio, and the Wi-Fi side's power state can affect Bluetooth coexistence);
+  - **btusb autosuspend being off**;
+  - or the combination after some uptime/suspend cycles. Note: the controller *did* reconnect fine for one evening with all three changes active, so it doesn't fail immediately.
+- **Not yet done (to resolve it later):**
+  1. Re-apply one change at a time (first only `[LE]`, then autosuspend, then Wi-Fi off) and test a fresh pairing plus a reconnect after each, including after suspend/resume and a cold boot via Wake-on-LAN.
+  2. Watch `dmesg` for `rtw89`/`btrtl` coexistence messages while Wi-Fi is off.
+  3. Decide the default: most likely **don't** turn the Wi-Fi radio off in `apply.sh` (make it opt-in).
+- **Quick recovery:** `sudo ./revert.sh && sudo nmcli radio wifi on && sudo modprobe -r btusb && sudo modprobe btusb && sudo systemctl restart bluetooth`, then pair again. If even that fails: a full power cut (PSU off for 30 s), because Wake-on-LAN keeps the onboard chip powered through shutdowns and reboots.
 
 ## If dropouts continue
 1. **USB-C data cable** to a **rear** port: zero risk, lowest latency.

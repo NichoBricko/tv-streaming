@@ -24,6 +24,7 @@ With the Claude Code plugin, run `/sunshine-on-demand:troubleshoot` and describe
 | Sunshine stopped mid-session | `journalctl --user -u sunshine-idle-stop`. It only stops after a disconnect + `IDLE_LIMIT`. |
 | **Screen sharing broken** on the desktop (Discord/Vesktop "Go Live", OBS, browser) after the PC booted into the TV session | The TV session left `xdg-desktop-portal` running with the GTK fallback and no ScreenCast. Fixed: the TV session now stops the portals when it ends. On an older install: `systemctl --user restart xdg-desktop-portal`, then restart the app. Check: `busctl --user introspect org.freedesktop.portal.Desktop /org/freedesktop/portal/desktop \| grep ScreenCast`. |
 | Controller lag / drop-outs | See [Controller](#controller) below, and [extras/xbox-controller-bluetooth](../extras/xbox-controller-bluetooth/README.md) for ~1 s Bluetooth dropouts. |
+| Controller **won't connect or pair at all** ("could not connect", `AuthenticationCanceled`, `btmon`: `Connection Failed to be Established (0x3e)`) although it pairs with a phone | **Open issue** after the xbox-controller-bluetooth extra on a Realtek Wi-Fi/Bluetooth combo chip: undo it (`revert.sh`), turn the Wi-Fi radio back on, reload `btusb`, restart bluetooth, then pair again. Details: [known problem](../extras/xbox-controller-bluetooth/README.md#known-problem-the-pc-cant-connect-to-the-controller-any-more). |
 
 ## Lessons learned (things that cost us hours)
 - **Moonlight only contacts a PC** when you open its page, press Retry, when the PC announces itself on the network (mDNS), and **for 15 s after Wake**. It does *not* keep polling an offline PC. A cold boot takes longer than 15 s, which is why the TV session uses the TV-ping trigger.
@@ -38,6 +39,8 @@ With the Claude Code plugin, run `/sunshine-on-demand:troubleshoot` and describe
 - **Flatpak Sunshine runs prep commands inside its sandbox**; they need `flatpak-spawn --host` (the installer does this).
 - **sudo needs a real terminal.** Neither Claude nor `!`-prefixed commands can answer the password prompt.
 - **Compiled Python files (`__pycache__`) embed absolute paths.** Keep them out of git.
+- **BlueZ settings don't reset with the service.** `[LE]` values from `main.conf` stay in the kernel after `systemctl restart bluetooth`; only reloading the driver (`modprobe -r btusb && modprobe btusb`) or a reboot resets them. A "reverted the file, still fails" test is invalid without that.
+- **Radio-level Bluetooth tweaks on Wi-Fi/Bluetooth combo chips can backfire.** Turning the Wi-Fi radio off (and btusb autosuspend off) coincided with the PC no longer being able to connect to the controller at all; undoing them fixed it (still being investigated).
 
 ## Stream stutter on smart TVs
 Measured on the reference LG (webOS 22, 4× Cortex-A55, 100 Mb/s port) during a 3.5 h session:
@@ -78,5 +81,6 @@ The TV's ad and tracking settings are worth turning off for privacy ([tv-clients
 - **Pair it with the PC, if possible.** That gives the lowest latency, and the TV can then be display-only (`BLOCK_CLIENT_CONTROLLER="yes"`). The LG TV's Bluetooth added very noticeable lag.
 - **Xbox controller won't pair over Bluetooth on Linux:** update its firmware first (Xbox Accessories app on Windows/Xbox; 5.09 failed, 5.17 worked). If the desktop pairing wizard fails, use `bluetoothctl`: `agent NoInputNoOutput`, `default-agent`, `scan le`, `pair <MAC>`, `trust <MAC>`, `connect <MAC>`.
 - **Frequent disconnects:** attach the motherboard's **Wi-Fi/Bluetooth antennas**. Without them the reference PC got a disconnect every 8–30 s.
+- **Can't connect at all after the dropout fix:** an open issue; see the [known problem](../extras/xbox-controller-bluetooth/README.md#known-problem-the-pc-cant-connect-to-the-controller-any-more). `revert.sh` + Wi-Fi radio on + reloading `btusb` fixed it on the reference PC.
 - **Occasional ~1 s dropouts** even with antennas (`failed to send FF report` in the kernel log): run [extras/xbox-controller-bluetooth](../extras/xbox-controller-bluetooth/README.md). It sets BlueZ LE parameters (2 s supervision timeout), turns btusb autosuspend off and the unused Wi-Fi radio off, and shows how to read the disconnect reason with `btmon`. The fallbacks are a USB-C cable or the Xbox Wireless Adapter (xone driver, unmaintained since 2026).
 - **Wired controller not detected:** front-panel USB-C ports often carry no data. Use a **rear** port and a data cable.
