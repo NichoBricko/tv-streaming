@@ -90,6 +90,8 @@ Follow `docs/tv-clients.md` for their platform:
 
 Moonlight settings: 4K60, HEVC. Smart TVs with 100 Mb/s Ethernet: start at **40 Mbps** and raise toward **60** while `lgtv-stream-stats` (LG) shows ~0 drops (60 verified on the reference LG; the fix was the decoder + strict rate control, not the bitrate). Gigabit boxes: 80–150. On LG webOS set the decoder to **NDL** explicitly. Keep `SUNSHINE_STRICT_RC="yes"` (default). For LG, offer `lgtv-stream-stats` to measure.
 
+Recommend: Steam → Settings → Interface → **"Scale text and icons to match monitor settings" off**, so Steam's desktop window keeps its size when the display switches to the TV resolution and back (`sunshine-steam-reset` is the fallback).
+
 ## 6. Pair, then the standby check
 1. `sunshine-on-demand start`. The user opens https://localhost:47990, creates a login, and enters the PIN Moonlight shows.
 2. **Standby check**, only if `TV_SESSION=yes`:

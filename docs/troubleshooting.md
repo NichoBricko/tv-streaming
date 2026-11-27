@@ -17,7 +17,7 @@ With the Claude Code plugin, run `/sunshine-on-demand:troubleshoot` and describe
 | Blocky picture | Moonlight's bitrate is too low; the default can be ~10 Mbps. Use 50–80 Mbps on gigabit boxes, about 40 on smart TVs (see next row). |
 | **Sporadic stutter / fps drops** although the PC renders far above 60 fps | Usually **keyframe bursts** overflowing a TV with a 100 Mb/s port or a weak SoC; see [Stream stutter](#stream-stutter-on-smart-tvs). |
 | Display didn't switch / restore | `journalctl --user -t sunshine-display-mode`; `sunshine-display-mode current`; check `DISPLAY_OUTPUT` and that the mode exists. |
-| Steam window wrong size after a stream | `journalctl --user -t sunshine-steam-reset`. Was a game still running? (Then the restart is skipped.) Run `sunshine-steam-reset` by hand. |
+| Steam window wrong size after a stream | **Best fix:** Steam → Settings → Interface → **"Scale text and icons to match monitor settings" off** (saved as `"DPIScaling" "0"` in `~/.steam/registry.vdf`); Steam then keeps a fixed size whatever resolution the screen switches to, and Big Picture still scales itself. Otherwise `sunshine-steam-reset` restarts Steam after the stream; if a game was still running it waits until the game closes (`journalctl --user -t sunshine-steam-reset`). |
 | PC still unlocked / in 4K after leaving the stream | You disconnected without **quitting** the app. Quit from Moonlight's menu, or run `sunshine-on-demand stop`. |
 | Sunshine stopped mid-session | `journalctl --user -u sunshine-idle-stop`. It only stops after a disconnect + `IDLE_LIMIT`. |
 | Controller lag / drop-outs | See [Controller](#controller) below, and [extras/xbox-controller-bluetooth](../extras/xbox-controller-bluetooth/README.md) for ~1 s Bluetooth dropouts. |
@@ -25,7 +25,7 @@ With the Claude Code plugin, run `/sunshine-on-demand:troubleshoot` and describe
 ## Lessons learned (things that cost us hours)
 - **Moonlight only contacts a PC** when you open its page, press Retry, when the PC announces itself on the network (mDNS), and **for 15 s after Wake**. It does *not* keep polling an offline PC. A cold boot takes longer than 15 s, which is why the TV session uses the TV-ping trigger.
 - **Sunshine's prep `undo` steps run bottom-to-top.** Anything that must happen after the resolution is restored has to sit *above* the display step.
-- **Steam caches its UI scale** (`AutoScaleFactor`) while the screen is 4K, and only recalculates it on restart; hence `sunshine-steam-reset`.
+- **Steam caches its UI scale** (`AutoScaleFactor`) while the screen is 4K, and only recalculates it on restart. Turning off "Scale text and icons to match monitor settings" avoids it entirely; `sunshine-steam-reset` (restart, deferred while a game runs) is the fallback.
 - **Controller input doesn't count as desktop activity**, so without the sleep inhibitor the PC can suspend mid-game.
 - **`kwin_wayland --lockscreen` doesn't report the lock to logind**, so `loginctl unlock-session` can't unlock it. The TV session locks through logind instead.
 - **Many motherboards report SMBIOS Wake-up Type "Power Switch" for every boot**, Wake-on-LAN included, so the boot reason is unreliable.
