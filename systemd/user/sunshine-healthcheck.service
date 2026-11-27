@@ -1,0 +1,8 @@
+[Unit]
+Description=Restart Sunshine if it started without a display or encoder (sunshine-on-demand)
+# Pulled in by every Sunshine start (drop-in written by setup.sh) and by a
+# Wake while Sunshine is already running.
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/sunshine-on-demand healthcheck

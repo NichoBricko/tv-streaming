@@ -62,7 +62,11 @@ def main() -> int:
     state = subprocess.run(["systemctl", "--user", "is-active", unit],
                            capture_output=True, text=True).stdout.strip()
     if state == "active":
-        log(f"{unit} already running")
+        # It may be running but broken (no display/encoder found at startup,
+        # e.g. right after resume): let the health check restart it if so.
+        subprocess.run(["systemctl", "--user", "start", "--no-block",
+                        "sunshine-healthcheck.service"], capture_output=True)
+        log(f"{unit} already running; health check requested")
         return 0
 
     result = subprocess.run(["systemctl", "--user", "start", "--no-block", unit],

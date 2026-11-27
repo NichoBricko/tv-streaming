@@ -304,6 +304,15 @@ install_user() {
   configure_apps_json
 
   say "User services"
+  # Every Sunshine start also runs the health check (restarts it if it found no
+  # display/encoder, e.g. right after resume from sleep).
+  local dropin="$UNIT_DIR/$SUNSHINE_UNIT.d/sunshine-on-demand.conf"
+  if [[ $DRY == yes ]]; then info "[dry-run] write $dropin (Wants=sunshine-healthcheck.service)"
+  else
+    mkdir -p "${dropin%/*}"
+    printf '# written by sunshine-on-demand setup.sh\n[Unit]\nWants=sunshine-healthcheck.service\n' > "$dropin"
+    info "wrote $dropin"
+  fi
   run systemctl --user daemon-reload
   run systemctl --user enable sunshine-login.service
   if (( IDLE_LIMIT > 0 )); then run systemctl --user enable --now sunshine-idle-stop.timer
@@ -488,7 +497,7 @@ cmd_status() {
   say "Sunshine ($u)"
   info "active=$(systemctl --user is-active "$u" 2>/dev/null)  autostart=$(systemctl --user is-enabled "$u" 2>/dev/null)"
   say "User units"
-  for s in sunshine-idle-stop.timer sunshine-login.service sunshine-stream-inhibit.service lgtv-devmode-extend.timer; do
+  for s in sunshine-idle-stop.timer sunshine-login.service sunshine-stream-inhibit.service sunshine-healthcheck.service lgtv-devmode-extend.timer; do
     info "$s: $(systemctl --user is-enabled "$s" 2>/dev/null || true) / $(systemctl --user is-active "$s" 2>/dev/null || true)"
   done
   say "System units"
@@ -554,6 +563,8 @@ cmd_uninstall() {
   for f in "$REPO"/share/applications/*; do
     if [[ -e $APP_DIR/$(basename "$f") ]]; then run rm "$APP_DIR/$(basename "$f")"; fi
   done
+  f="$UNIT_DIR/$SUNSHINE_UNIT.d/sunshine-on-demand.conf"
+  if [[ -e $f ]]; then run rm "$f"; run rmdir --ignore-fail-on-non-empty "${f%/*}"; fi
   run rm -rf "$CONF_DIR"
   run systemctl --user daemon-reload
   info "Sunshine's own config was left in place (backups: $SUN_DIR/*.bak-*)."

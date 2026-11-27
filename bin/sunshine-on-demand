@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sunshine-on-demand start|stop|status|cleanup|login
+# sunshine-on-demand start|stop|status|cleanup|login|healthcheck
 #
 # Start/stop the Sunshine user service by hand (menu entries, KDE Connect, ...).
 # When started this way it still stops itself after IDLE_LIMIT without a stream.
@@ -13,6 +13,12 @@
 # while nobody was logged in (the PC booted to the login screen), the Wake
 # listener left /run/sunshine-on-demand/wake-pending - start Sunshine now so
 # Moonlight can connect as soon as you've logged in.
+#
+# "healthcheck" (sunshine-healthcheck.service, pulled in by every Sunshine start,
+# and by a Wake while Sunshine already runs): Sunshine stays "active" even when
+# it found no display/encoder at startup - e.g. right after resume from sleep,
+# before the GPU's outputs are back - and then no client can connect. If this
+# start logged "Fatal: Unable to find display or encoder", restart it.
 
 set -u
 CONFIG=${SOD_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/sunshine-on-demand/config.env}
@@ -46,11 +52,43 @@ login() {
   fi
 }
 
+healthcheck() {
+  local attempt state id out verdict
+  for (( attempt = 0; ; attempt++ )); do
+    for _ in $(seq 1 30); do                 # wait while it is starting (ExecStartPre)
+      state=$(systemctl --user is-active "$UNIT" 2>/dev/null)
+      [[ $state == activating || $state == reloading ]] || break
+      sleep 1
+    done
+    [[ $state == active ]] || return 0      # stopped or failed: systemd handles that
+    id=$(systemctl --user show -p InvocationID --value "$UNIT")
+    [[ -n $id ]] || return 0
+    verdict=
+    for _ in $(seq 1 30); do                 # wait for the end of Sunshine's startup
+      out=$(journalctl --user _SYSTEMD_INVOCATION_ID="$id" -o cat --no-pager 2>/dev/null)
+      if grep -q 'Fatal: Unable to find display or encoder' <<< "$out"; then verdict=broken; break; fi
+      if grep -q 'Configuration UI available' <<< "$out"; then verdict=ok; break; fi
+      systemctl --user is-active --quiet "$UNIT" || return 0
+      sleep 1
+    done
+    [[ $verdict == broken ]] || return 0
+    if (( attempt >= ${SUNSHINE_START_RETRIES:-3} )); then
+      log "Sunshine still finds no display or encoder after $attempt restarts; giving up (check: journalctl --user -u $UNIT)"
+      return 1
+    fi
+    log "Sunshine started without a display or encoder (e.g. GPU outputs not back yet after resume); restarting it"
+    sleep 3
+    systemctl --user restart --no-block "$UNIT"
+    sleep 1
+  done
+}
+
 case "${1:-status}" in
   start)   systemctl --user start "$UNIT" ;;
   stop)    systemctl --user stop "$UNIT"; cleanup ;;
   cleanup) cleanup ;;
   login)   login ;;
+  healthcheck) healthcheck ;;
   status)  systemctl --user --no-pager status "$UNIT" ;;
-  *) echo "usage: $0 start|stop|status|cleanup|login" >&2; exit 2 ;;
+  *) echo "usage: $0 start|stop|status|cleanup|login|healthcheck" >&2; exit 2 ;;
 esac

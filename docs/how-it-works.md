@@ -8,6 +8,7 @@ Technical reference for the Linux implementation. For installing, see the [READM
 | **Sunshine on demand** | Not started at login. Started by Moonlight's **Wake PC** button (a Wake-on-LAN listener on UDP 9), after resume from sleep, by the TV session, or from the app menu. |
 | **Wake from sleep** | Moonlight's Wake-on-LAN packet wakes the PC; `sunshine-resume.service` starts Sunshine. |
 | **Wake from power-off** | The PC boots; if the TV answers pings (it's on, so someone pressed Wake), the PC logs into the locked **TV session** by itself. See [TV session](#tv-session-cold-boot). |
+| **Self-repair** | Sunshine can start "successfully" yet find no display (right after resume, before the GPU's outputs are back). `sunshine-healthcheck.service` runs after every Sunshine start and on every Wake, and restarts it when its log says `Fatal: Unable to find display or encoder` (up to `SUNSHINE_START_RETRIES`). |
 | **Auto stop** | Sunshine stops after `IDLE_LIMIT` (default 10 min) without a connected stream. |
 | **Unlock for the stream** | If the session is locked, it's unlocked when a **paired** client starts a stream, and locked again afterwards. If you were already logged in, it's left alone. |
 | **Display switching** | The PC's display switches to the client's resolution/fps, then back to the previous mode (KDE, X11, wlroots; GNOME via your own command). |
@@ -21,12 +22,13 @@ Technical reference for the Linux implementation. For installing, see the [READM
 |---|---|---|
 | `sunshine-wol.socket` + `sunshine-wol.service` | system | Listens on UDP 9. `sunshine-wol-handler.py` (runs as you) starts Sunshine **only** for a magic packet with your MAC sent **from `CLIENT_IP`**. If nobody is logged in yet, it remembers the wake (`/run/sunshine-on-demand/wake-pending`). |
 | `sunshine-resume.service` | system | Starts Sunshine after every resume (the idle timer stops it again if nobody connects). |
+| `sunshine-healthcheck.service` + drop-in `<sunshine unit>.d/sunshine-on-demand.conf` | user | The drop-in makes every Sunshine start pull in the health check (`sunshine-on-demand healthcheck`); the Wake listener also starts it when Sunshine already runs. |
 | `sunshine-login.service` | user | At login: starts Sunshine if a Wake arrived while nobody was logged in. |
 | `sunshine-tv-autologin.service`, `sunshine-tv-clientcheck.service`, `sunshine-tv-wake.path/.service`, `/usr/local/lib/sunshine-on-demand/sunshine-tv-*`, `/usr/share/wayland-sessions/sunshine-tv.desktop` | system | Only with `TV_SESSION=yes`: the TV session and its triggers. They edit `/etc/plasmalogin.conf` `[Autologin]` (original kept as `.pre-sunshine-on-demand`) or write an SDDM drop-in. |
 | `/etc/sunshine-on-demand.env` | system | `WOL_MAC`, `CLIENT_IP`, `SUNSHINE_UNIT`, `SOD_USER`, `TV_*` for the system units. |
 | `sunshine-idle-stop.timer` | user | Every minute: stops Sunshine after `IDLE_LIMIT` without a stream (reads `CLIENT CONNECTED/DISCONNECTED` in Sunshine's log). In the TV session it then suspends the PC. |
 | `sunshine-stream-inhibit.service` | user | `systemd-inhibit` against sleep/idle while streaming. |
-| `~/.local/bin/sunshine-*` | user | Helpers called by Sunshine's prep commands (`display-mode`, `session-lock`, `steam-reset`, `open-app`) + `sunshine-on-demand start\|stop\|status\|cleanup\|login`. |
+| `~/.local/bin/sunshine-*` | user | Helpers called by Sunshine's prep commands (`display-mode`, `session-lock`, `steam-reset`, `open-app`) + `sunshine-on-demand start\|stop\|status\|cleanup\|login\|healthcheck`. |
 | `~/.local/share/applications/sunshine-{start,stop}.desktop` | user | Menu entries. |
 | `~/.config/sunshine-on-demand/config.env` | user | Copy of your `config.env`, read by the helpers. |
 | `~/.config/sunshine/sunshine.conf`, `apps.json` | user | **Merged**, not replaced (backups `*.bak-<date>` when something changed). |
