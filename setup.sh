@@ -39,8 +39,14 @@ load_config() {
   [[ -r $CONFIG_SRC ]] || die "no config.env - run: ./setup.sh configure --client-ip <IP>"
   # shellcheck source=/dev/null
   . "$CONFIG_SRC"
-  [[ ${CLIENT_IP:-} =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] \
-    || die "set CLIENT_IP in config.env to your TV/streaming box's IP"
+  # CLIENT_IP: one or more addresses of the client (e.g. the TV's cable and Wi-Fi IP)
+  local cip=${CLIENT_IP:-}; read -r -a CLIENT_IPS <<< "${cip//,/ }"
+  (( ${#CLIENT_IPS[@]} )) || die "set CLIENT_IP in config.env to your TV/streaming box's IP"
+  local ip
+  for ip in "${CLIENT_IPS[@]}"; do
+    [[ $ip =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || die "CLIENT_IP: '$ip' is not an IPv4 address"
+  done
+  CLIENT_IP="${CLIENT_IPS[*]}"
   if [[ $WAKE_ON_LAN == yes && ! ${WOL_MAC:-} =~ ^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$ ]]; then
     die "WAKE_ON_LAN=yes needs a valid WOL_MAC (aa:bb:cc:dd:ee:ff) in config.env"
   fi
@@ -333,21 +339,26 @@ firewall_rules() {  # firewall_rules add|delete
   case $FIREWALL in
     ufw)
       ufw_rule() {  # ufw_rule <ports> <proto> <comment>
-        if [[ $action == add ]]; then
-          sudo_run ufw allow from "$CLIENT_IP" to any port "$1" proto "$2" comment "sunshine-on-demand: $3"
-        else
-          sudo_run ufw delete allow from "$CLIENT_IP" to any port "$1" proto "$2" || true
-        fi
+        local ip
+        for ip in "${CLIENT_IPS[@]}"; do
+          if [[ $action == add ]]; then
+            sudo_run ufw allow from "$ip" to any port "$1" proto "$2" comment "sunshine-on-demand: $3"
+          else
+            sudo_run ufw delete allow from "$ip" to any port "$1" proto "$2" || true
+          fi
+        done
       }
       ufw_rule "$SUNSHINE_TCP" tcp "Sunshine"
       ufw_rule "$SUNSHINE_UDP" udp "Sunshine stream"
       if [[ $WAKE_ON_LAN == yes ]]; then ufw_rule 9 udp "Wake-on-LAN"; fi ;;
     firewalld)
       local op=--add-rich-rule; [[ $action == delete ]] && op=--remove-rich-rule
-      local p
-      for p in "47984 tcp" "47989 tcp" "48010 tcp" "47998-48000 udp" "9 udp"; do
-        [[ $p == "9 udp" && $WAKE_ON_LAN != yes ]] && continue
-        sudo_run firewall-cmd --permanent "$op=rule family=\"ipv4\" source address=\"$CLIENT_IP\" port port=\"${p% *}\" protocol=\"${p#* }\" accept"
+      local p ip
+      for ip in "${CLIENT_IPS[@]}"; do
+        for p in "47984 tcp" "47989 tcp" "48010 tcp" "47998-48000 udp" "9 udp"; do
+          [[ $p == "9 udp" && $WAKE_ON_LAN != yes ]] && continue
+          sudo_run firewall-cmd --permanent "$op=rule family=\"ipv4\" source address=\"$ip\" port port=\"${p% *}\" protocol=\"${p#* }\" accept"
+        done
       done
       sudo_run firewall-cmd --reload ;;
     none) info "no firewall configured (FIREWALL=none)" ;;
@@ -358,7 +369,7 @@ firewall_rules() {  # firewall_rules add|delete
 install_system() {
   say "System units (sudo)"
   local tmp; tmp=$(mktemp)
-  printf 'WOL_MAC=%s\nCLIENT_IP=%s\nSUNSHINE_UNIT=%s\nSOD_USER=%s\nTV_AUTOLOGIN=%s\nTV_WAKE_TYPES="%s"\nTV_CLIENT_CHECK_SECONDS=%s\nSTREAM_IFACE=%s\nSTREAM_PACING_MBIT=%s\n' \
+  printf 'WOL_MAC=%s\nCLIENT_IP="%s"\nSUNSHINE_UNIT=%s\nSOD_USER=%s\nTV_AUTOLOGIN=%s\nTV_WAKE_TYPES="%s"\nTV_CLIENT_CHECK_SECONDS=%s\nSTREAM_IFACE=%s\nSTREAM_PACING_MBIT=%s\n' \
     "$WOL_MAC" "$CLIENT_IP" "$SUNSHINE_UNIT" "$(id -un)" "$TV_AUTOLOGIN" "$TV_WAKE_TYPES" "$TV_CLIENT_CHECK_SECONDS" \
     "${STREAM_IFACE:-$WOL_IFACE}" "${STREAM_PACING_MBIT:-}" > "$tmp"
   sudo_run install -m 644 "$tmp" "$SYS_ENV"; rm -f "$tmp"

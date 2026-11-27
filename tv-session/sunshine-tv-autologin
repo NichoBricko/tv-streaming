@@ -183,15 +183,16 @@ def main():
         return 0
 
     if action == "client-check":
-        ip = os.environ.get("CLIENT_IP", "")
-        if mode != "auto" or not user or not ip:
+        ips = os.environ.get("CLIENT_IP", "").replace(",", " ").split()
+        ip = " / ".join(ips)
+        if mode != "auto" or not user or not ips:
             return 0
         deadline = time.monotonic() + int(os.environ.get("TV_CLIENT_CHECK_SECONDS", "60"))
         while time.monotonic() < deadline:
             if user_logged_in(user):
                 log(f"client-check: {user} logged in; stopping")
                 return 0
-            if client_reachable(ip):
+            if any(client_reachable(a) for a in ips):
                 log(f"client-check: streaming client {ip} is on")
                 one_time_autologin(dm, user, "client-check")
                 return 0

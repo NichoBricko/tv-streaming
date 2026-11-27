@@ -18,6 +18,30 @@ IDLE_LIMIT=${IDLE_LIMIT:-600}
 
 systemctl --user is-active --quiet "$UNIT" || exit 0
 
+# Warn once per address and boot when the firewall blocked a connection to
+# Sunshine from an address that isn't in CLIENT_IP - typically the TV joined
+# Wi-Fi (another IP) while Wake still arrives over its cable. Needs read access
+# to the kernel log (journal group, as on most desktops); silently skipped otherwise.
+warn_blocked_clients() {
+  local run=${XDG_RUNTIME_DIR:-/run/user/$(id -u)} src mark msg
+  local allowed=" ${CLIENT_IP//,/ } "
+  journalctl -k --since -3min -o cat --no-pager 2>/dev/null \
+    | grep -E 'BLOCK|REJECT|DROP' | grep -E 'DPT=(47984|47989|48010) ' \
+    | grep -oE 'SRC=[0-9.]+' | cut -d= -f2 | sort -u \
+    | while read -r src; do
+        [[ $allowed == *" $src "* ]] && continue
+        mark=$run/sunshine-blocked-client-$src
+        [[ -e $mark ]] && continue
+        : > "$mark"
+        msg="The firewall blocked a connection to Sunshine from $src (not in CLIENT_IP). Is the TV also on Wi-Fi? Turn its Wi-Fi off, or add $src to CLIENT_IP in config.env and run: setup.sh install --system"
+        echo "$msg"; logger -t sunshine-idle-stop -- "$msg" 2>/dev/null || true
+        if [[ ! -e $run/sunshine-tv-session ]] && command -v notify-send >/dev/null; then
+          timeout 5 notify-send -a Sunshine -i network-error "Moonlight can't connect" "$msg" 2>/dev/null || true
+        fi
+      done
+}
+[[ -n ${CLIENT_IP:-} ]] && warn_blocked_clients
+
 # Start of the current Sunshine run (epoch seconds)
 start_s=$(date -d "$(systemctl --user show -p ActiveEnterTimestamp --value "$UNIT")" +%s 2>/dev/null) || exit 0
 

@@ -5,7 +5,8 @@ Socket-activated by sunshine-wol.socket (UDP 9, datagram, Accept=no): the
 listening socket is passed in as fd 3. Every pending datagram is read; a
 packet starts Sunshine only if
 
-  * it comes from the allowed client IP (the TV), and
+  * it comes from an allowed client IP (CLIENT_IP: the TV, possibly with both
+    its cable and its Wi-Fi address), and
   * it is a Wake-on-LAN magic packet (6 x 0xFF + 16 x MAC) for this PC's MAC.
 
 Moonlight TV sends exactly this: a 102-byte broadcast to 255.255.255.255:9
@@ -22,7 +23,7 @@ import sys
 SD_LISTEN_FDS_START = 3
 
 mac = bytes.fromhex(os.environ["WOL_MAC"].replace(":", ""))
-allowed_src = os.environ["CLIENT_IP"]
+allowed_src = set(os.environ["CLIENT_IP"].replace(",", " ").split())  # e.g. cable + Wi-Fi IP
 unit = os.environ["SUNSHINE_UNIT"]
 if len(mac) != 6:
     sys.exit(f"WOL_MAC must be a 6-byte MAC address, got {os.environ['WOL_MAC']!r}")
@@ -47,7 +48,7 @@ def main() -> int:
             data, (src, _port) = sock.recvfrom(2048)
         except BlockingIOError:
             break
-        if src != allowed_src:
+        if src not in allowed_src:
             log(f"ignored packet from {src}: not the allowed client")
             continue
         if expected not in data:

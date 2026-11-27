@@ -32,7 +32,7 @@ Technical reference for the Linux implementation. For installing, see the [READM
 | `~/.local/share/applications/sunshine-{start,stop}.desktop` | user | Menu entries. |
 | `~/.config/sunshine-on-demand/config.env` | user | Copy of your `config.env`, read by the helpers. |
 | `~/.config/sunshine/sunshine.conf`, `apps.json` | user | **Merged**, not replaced (backups `*.bak-<date>` when something changed). |
-| Firewall rules | system | ufw / firewalld: TCP 47984, 47989, 48010 + UDP 47998–48000 (+ UDP 9) **from `CLIENT_IP` only**. The web UI port 47990 is not opened. |
+| Firewall rules | system | ufw / firewalld: TCP 47984, 47989, 48010 + UDP 47998–48000 (+ UDP 9) **from `CLIENT_IP` only** (one rule set per address when it lists several, e.g. the TV's cable and Wi-Fi IP). The web UI port 47990 is not opened. Connections the firewall blocks from other addresses are logged as a warning by `sunshine-idle-stop`. |
 
 ## The streamed app
 Sunshine runs the **do** steps top→bottom when a stream starts, and the **undo** steps bottom→top when it ends:
