@@ -16,7 +16,7 @@ Check that it runs: `systemctl --user start app-dev.lizardbyte.app.Sunshine.serv
 ```bash
 git clone https://github.com/NichoBricko/tv-streaming ~/.local/share/sunshine-on-demand
 cd ~/.local/share/sunshine-on-demand
-./setup.sh configure --client-ip <TV IP>   # give the TV a fixed IP (DHCP reservation) first
+./setup.sh configure                       # --client-ip <TV IP> optional (needed for FIREWALL_SCOPE="client")
 $EDITOR config.env                         # review; TV_SESSION="yes" for cold-boot streaming
 ./setup.sh install --dry-run               # preview
 ./setup.sh install --user                  # no sudo

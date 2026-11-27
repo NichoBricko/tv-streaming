@@ -4,7 +4,7 @@
 
 **Couch gaming from your PC on your TV: press Wake on the TV, play.**
 
-Built on [Sunshine](https://github.com/LizardByte/Sunshine) + [Moonlight](https://moonlight-stream.org). One press of **Wake** in Moonlight wakes the PC, even from **power-off**. The PC comes up in a locked, silent "TV session", the stream unlocks it, switches the display to 4K and opens Steam Big Picture. When you're done, everything is put back and locked again. Sunshine only runs while you play, and the firewall only lets your TV in.
+Built on [Sunshine](https://github.com/LizardByte/Sunshine) + [Moonlight](https://moonlight-stream.org). One press of **Wake** in Moonlight wakes the PC, even from **power-off**. The PC comes up in a locked, silent "TV session", the stream unlocks it, switches the display to 4K and opens Steam Big Picture. When you're done, everything is put back and locked again. Sunshine only runs while you play, and only your paired TV can stream - on any IP, cable or Wi-Fi.
 
 ## How it works
 ```mermaid
@@ -13,7 +13,7 @@ flowchart LR
         ML["Moonlight"]
     end
     subgraph PC["🖥️ Linux PC"]
-        WOL["Wake listener<br/>(UDP 9, TV's IP only)"]
+        WOL["Wake listener<br/>(UDP 9, local network only)"]
         CHK["TV check at boot<br/>(TV on? → TV session)"]
         TVS["🔒 TV session<br/>locked, silent"]
         SUN["Sunshine<br/>(on demand, idle stop)"]
@@ -86,11 +86,11 @@ You'll be asked to run the few commands that need your password in your own term
 <sub>Older Claude Code: `/plugin marketplace add NichoBricko/tv-streaming`, then `/plugin install sunshine-on-demand@nichobricko`. Problems later: `/sunshine-on-demand:troubleshoot`.</sub>
 
 ## Install manually (Linux)
-1. Install Sunshine ([per distro](docs/linux.md#1-install-sunshine)), and give your TV a fixed IP in your router.
+1. Install Sunshine ([per distro](docs/linux.md#1-install-sunshine)).
 2. Configure and install:
    ```bash
    git clone https://github.com/NichoBricko/tv-streaming ~/.local/share/sunshine-on-demand && cd ~/.local/share/sunshine-on-demand
-   ./setup.sh configure --client-ip <TV IP>     # detects your PC, writes config.env - review it
+   ./setup.sh configure                         # detects your PC, writes config.env - review it
    ./setup.sh install                           # asks for sudo for the system part
    ```
 3. Enable Wake-on-LAN in your BIOS ([vendor table](docs/linux.md#3-wake-on-lan-in-the-biosuefi)).
@@ -105,7 +105,7 @@ Details and testing: [docs/linux.md](docs/linux.md).
 
 ## Security in brief
 - Sunshine runs only on demand.
-- Only your **paired** TV can connect; the firewall only allows **its IP**; the stream is **encrypted**.
+- Only your **paired** TV can stream (PIN pairing gives it a certificate, checked on every connection, whatever its IP); the stream is **encrypted**; the firewall only opens Sunshine to the **local network** (not VPNs or the internet). Stricter: `FIREWALL_SCOPE="client"` (the TV's IP only).
 - A Wake never unlocks anything: the session is unlocked only for a paired client's stream, and locked again afterwards.
 - The TV can't type, move the mouse, or show your desktop; it only gets Steam Big Picture.
 

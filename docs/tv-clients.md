@@ -55,7 +55,7 @@ Worth turning off for privacy. **No evidence that they improve streaming**: the 
 - **Debloat tools:** `cleanyourtv` (popular, Claude/Codex-driven) works over ADB and therefore only on **Android/Google TV**; on those it's careful (disables apps, has a restore). Its webOS ports only replace the home screen.
 
 ## Pairing (same on every client)
-1. Give the client a **fixed IP** (DHCP reservation in your router). The firewall and the Wake listener only accept `CLIENT_IP`. If the TV can also use Wi-Fi, either turn its Wi-Fi off or reserve its Wi-Fi IP too and list both (`CLIENT_IP="<cable IP> <Wi-Fi IP>"`).
+1. **No fixed IP needed** (default `FIREWALL_SCOPE="lan"`): the paired client works on any address. With a cable, still turn the TV's **Wi-Fi off**: some TVs (LG webOS) join Wi-Fi when the cable is briefly unplugged and keep streaming over it. Only `FIREWALL_SCOPE="client"` needs a DHCP reservation and `CLIENT_IP`.
 2. On the PC: `sunshine-on-demand start`, open <https://localhost:47990>, and create the login the first time.
 3. In Moonlight, select the PC (or add it by IP). Moonlight shows a **PIN**; enter it in Sunshine's web UI under **PIN**.
 

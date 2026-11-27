@@ -31,12 +31,13 @@ reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power" /v Hiberbo
 ```
 Then enable it in the **BIOS/UEFI** (vendor table in [linux.md](linux.md#3-wake-on-lan-in-the-biosuefi)). Property names differ per driver, so check the list from the second command. Updating the NIC driver often helps.
 
-## 3. Firewall: only the TV
+## 3. Firewall: local network only
+Only the paired TV can stream (pairing certificate), so it's enough to keep Sunshine off the internet; the TV may then change IP or switch between cable and Wi-Fi.
 ```powershell
-$tv = "192.168.1.50"   # your TV/box's fixed IP
-New-NetFirewallRule -DisplayName "Sunshine from TV (TCP)" -Direction Inbound -Protocol TCP -LocalPort 47984,47989,48010 -RemoteAddress $tv -Action Allow
-New-NetFirewallRule -DisplayName "Sunshine from TV (UDP)" -Direction Inbound -Protocol UDP -LocalPort 47998-48000 -RemoteAddress $tv -Action Allow
+New-NetFirewallRule -DisplayName "Sunshine LAN (TCP)" -Direction Inbound -Protocol TCP -LocalPort 47984,47989,48010 -RemoteAddress LocalSubnet -Profile Private -Action Allow
+New-NetFirewallRule -DisplayName "Sunshine LAN (UDP)" -Direction Inbound -Protocol UDP -LocalPort 47998-48000 -RemoteAddress LocalSubnet -Profile Private -Action Allow
 ```
+Mark your home network as **Private** in Windows. Stricter: `-RemoteAddress <TV IP>` instead of `LocalSubnet` (breaks when the TV's IP changes).
 The Sunshine installer may already have added broad rules. Review them in "Windows Defender Firewall with Advanced Security", and limit or remove the ones open to everything.
 
 ## 4. Sunshine settings (web UI, https://localhost:47990)

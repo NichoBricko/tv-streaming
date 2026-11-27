@@ -9,11 +9,16 @@ Picture + Sunshine) when the PC was woken for streaming. Runs as root.
                                 this alone is often not enough.
   sunshine-tv-autologin client-check   (sunshine-tv-clientcheck.service, right
                                 after boot, alongside the login screen) - if the
-                                streaming client (CLIENT_IP, e.g. the TV) answers
-                                pings within TV_CLIENT_CHECK_SECONDS while nobody
-                                is logged in, the TV is on - someone pressed Wake
-                                in Moonlight - so do the one-time auto-login below.
+                                streaming client (e.g. the TV) is on the network
+                                within TV_CLIENT_CHECK_SECONDS while nobody is
+                                logged in, someone pressed Wake in Moonlight - so
+                                do the one-time auto-login below. The client is
+                                recognised by the MAC addresses learned at stream
+                                start (/var/lib/sunshine-on-demand/clients, found
+                                with an ARP scan - works on any IP, cable or
+                                Wi-Fi) and by pinging its last IPs and CLIENT_IP.
                                 TV off -> nothing happens, normal login screen.
+  sunshine-tv-autologin client-scan   diagnostics: is a known client on now?
   sunshine-tv-autologin wake   (sunshine-tv-wake.path/.service) - the Wake
                                 listener received a magic packet from the client
                                 while nobody was logged in (the PC sits at the
@@ -25,7 +30,7 @@ Settings (/etc/sunshine-on-demand.env):
   TV_AUTOLOGIN   auto (default: client check + wake trigger + boot check)
                  | on-wake (wake trigger only) | wol (boot check only)
                  | always (every boot) | no
-  CLIENT_IP, TV_CLIENT_CHECK_SECONDS (default 60)
+  CLIENT_IP (optional), TV_CLIENT_CHECK_SECONDS (default 60)
   TV_WAKE_TYPES  comma-separated wake types that count as Wake-on-LAN
                  (default "LAN Remote,PCI PME#")
   SOD_USER       user to log in
@@ -34,9 +39,12 @@ Only autologin entries this script created (Session=sunshine-tv) are ever
 removed, so an autologin you configured yourself is left alone.
 """
 import fcntl
+import ipaddress
 import json
 import os
 import re
+import socket
+import struct
 import subprocess
 import sys
 import time
@@ -49,6 +57,7 @@ SDDM_DROPIN = "/etc/sddm.conf.d/zz-sunshine-tv-autologin.conf"
 LOCK = "/run/sunshine-tv-autologin.lock"       # one one-time auto-login at a time
 STAMP = "/run/sunshine-tv-autologin.last"      # when the last one ran
 MIN_GAP = 90                                   # seconds between two
+CLIENTS = "/var/lib/sunshine-on-demand/clients"  # "MAC last-IP epoch" per line
 
 
 def log(msg):
@@ -167,6 +176,93 @@ def client_reachable(ip):
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
 
 
+def any_reachable(ips):
+    """Ping all addresses in parallel; return the first that answered."""
+    procs = {ip: subprocess.Popen(["ping", "-c", "1", "-W", "1", ip],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for ip in ips}
+    hit = None
+    for ip, p in procs.items():
+        if p.wait() == 0 and hit is None:
+            hit = ip
+    return hit
+
+
+def known_clients():
+    """(MACs, last IPs) of the paired client, learned at stream start."""
+    macs, ips = set(), []
+    try:
+        for line in open(CLIENTS):
+            f = line.split()
+            if len(f) >= 2 and re.fullmatch(r"([0-9a-f]{2}:){5}[0-9a-f]{2}", f[0]):
+                macs.add(f[0])
+                ips.append(f[1])
+    except OSError:
+        pass
+    return macs, ips
+
+
+def lan_addresses():
+    """(interface, IPv4, prefix) of the physical Ethernet/Wi-Fi interfaces."""
+    out = []
+    try:
+        data = json.loads(subprocess.run(["ip", "-j", "-4", "addr", "show", "up"],
+                                         capture_output=True, text=True).stdout or "[]")
+    except json.JSONDecodeError:
+        return out
+    for link in data:
+        ifc = link.get("ifname", "")
+        if not os.path.exists(f"/sys/class/net/{ifc}/device"):
+            continue                                   # skip lo, VPN, docker, bridges
+        for a in link.get("addr_info", []):
+            if a.get("family") == "inet" and a.get("scope") == "global":
+                out.append((ifc, a["local"], int(a["prefixlen"])))
+    return out
+
+
+def arp_scan(macs, listen=1.5):
+    """Broadcast ARP requests over the PC's LAN(s) (up to a /22 around its own
+    address) and return the known MACs that answered. Needs root."""
+    found = set()
+    for ifc, addr, prefix in lan_addresses():
+        try:
+            my_mac = bytes.fromhex(open(f"/sys/class/net/{ifc}/address").read().strip().replace(":", ""))
+            s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0806))
+            s.bind((ifc, 0))
+        except OSError as e:
+            log(f"ARP scan on {ifc} failed: {e}")
+            continue
+        with s:
+            s.settimeout(0.1)
+            spa = ipaddress.ip_address(addr).packed
+            head = b"\xff" * 6 + my_mac + b"\x08\x06" + struct.pack("!HHBBH", 1, 0x0800, 6, 4, 1) + my_mac + spa + b"\x00" * 6
+            for host in ipaddress.ip_network(f"{addr}/{max(prefix, 22)}", strict=False).hosts():
+                if str(host) != addr:
+                    s.send(head + host.packed)
+            end = time.monotonic() + listen
+            while time.monotonic() < end:
+                try:
+                    pkt = s.recv(128)
+                except socket.timeout:
+                    continue
+                if len(pkt) >= 42 and pkt[12:14] == b"\x08\x06" and pkt[20:22] == b"\x00\x02":
+                    sha = pkt[22:28].hex(":")
+                    if sha in macs:
+                        found.add(sha)
+    return found
+
+
+def client_on(ips, macs, scan):
+    """Is the streaming client on? Returns a description, or None."""
+    hit = any_reachable(ips) if ips else None
+    if hit:
+        return f"answers ping on {hit}"
+    if scan and macs:
+        found = arp_scan(macs)
+        if found:
+            return "found by MAC " + ", ".join(sorted(found))
+    return None
+
+
 def main():
     action = sys.argv[1] if len(sys.argv) > 1 else "boot"
     mode = os.environ.get("TV_AUTOLOGIN", "auto")
@@ -183,21 +279,35 @@ def main():
         return 0
 
     if action == "client-check":
-        ips = os.environ.get("CLIENT_IP", "").replace(",", " ").split()
-        ip = " / ".join(ips)
-        if mode != "auto" or not user or not ips:
+        macs, learned_ips = known_clients()
+        ips = list(dict.fromkeys(os.environ.get("CLIENT_IP", "").replace(",", " ").split() + learned_ips))
+        if mode != "auto" or not user:
+            return 0
+        if not ips and not macs:
+            log("client-check: no streaming client known yet (learned at the first stream) - normal login screen")
             return 0
         deadline = time.monotonic() + int(os.environ.get("TV_CLIENT_CHECK_SECONDS", "60"))
+        n = 0
         while time.monotonic() < deadline:
             if user_logged_in(user):
                 log(f"client-check: {user} logged in; stopping")
                 return 0
-            if any(client_reachable(a) for a in ips):
-                log(f"client-check: streaming client {ip} is on")
+            how = client_on(ips, macs, scan=(n % 3 == 0))   # ARP scan every ~3rd round
+            if how:
+                log(f"client-check: streaming client is on ({how})")
                 one_time_autologin(dm, user, "client-check")
                 return 0
+            n += 1
             time.sleep(2)
-        log(f"client-check: streaming client {ip} not reachable - normal login screen")
+        log("client-check: streaming client not found - normal login screen")
+        return 0
+
+    if action == "client-scan":
+        macs, learned_ips = known_clients()
+        ips = list(dict.fromkeys(os.environ.get("CLIENT_IP", "").replace(",", " ").split() + learned_ips))
+        log(f"known MACs: {', '.join(sorted(macs)) or 'none'}; IPs: {', '.join(ips) or 'none'}")
+        log(f"LAN: {lan_addresses()}")
+        log("client is on: " + (client_on(ips, macs, scan=True) or "no"))
         return 0
 
     allowed = {t.strip() for t in os.environ.get("TV_WAKE_TYPES", "LAN Remote,PCI PME#").split(",")}

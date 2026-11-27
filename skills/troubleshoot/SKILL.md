@@ -22,8 +22,9 @@ The installed copy is usually `~/.local/share/sunshine-on-demand` (or wherever t
    Read the report file it names. Its timestamps tell the story: wake accepted → TV check / auto-login → TV session locked → stream unlock → display → stream end → relock.
 3. **Match the symptom** in `docs/troubleshooting.md` and check that cause specifically. The usual suspects:
    - **Sunshine was updated** → capture fails until `./setup.sh setcap` is re-run.
-   - **The client's IP changed** → the Wake listener logs "not the allowed client". Fix it with a DHCP reservation, `CLIENT_IP` in `config.env`, then `install` (user + system).
-   - **Wake works but Moonlight never connects** → the TV is also on Wi-Fi and connects from another IP, which the firewall blocks. Check "Firewall: blocked connections" in the report and the `sunshine-idle-stop` warning. Fix: Wi-Fi off on the TV, or add its (reserved) Wi-Fi IP to `CLIENT_IP` and run `install --system`.
+   - **The client's IP changed** → only matters with `FIREWALL_SCOPE="client"` (Wake listener logs "not the allowed client (CLIENT_IP)"). Fix: default `FIREWALL_SCOPE="lan"`, or a DHCP reservation + `CLIENT_IP`, then `install` (user + system).
+   - **Wake works but Moonlight never connects** → with `FIREWALL_SCOPE="client"`: the TV connects from another IP (often it's also on Wi-Fi), which the firewall blocks; see "Firewall: blocked connections" in the report. Fix: `FIREWALL_SCOPE="lan"` + `install --system`, and Wi-Fi off on a cabled TV.
+   - **Cold boot lands at the normal login although the TV is on** → the boot check didn't find the TV: no MAC learned yet (stream once), or the TV answers neither ARP nor ping; `journalctl -u sunshine-tv-clientcheck -b`, `sudo .../sunshine-tv-autologin client-scan`.
    - **Sunshine "already running" but nothing connects after resume** → it started without a display (`Fatal: Unable to find display or encoder`); `sunshine-healthcheck` should have restarted it (`journalctl --user -t sunshine-on-demand`).
    - **The TV answers pings in standby** → every boot goes into the TV session. Fix: turn off the TV's network standby, or `TV_AUTOLOGIN="on-wake"`.
    - **Moonlight's Wake gave up after 15 s** → press Retry.

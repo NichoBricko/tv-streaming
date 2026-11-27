@@ -5,8 +5,9 @@ Socket-activated by sunshine-wol.socket (UDP 9, datagram, Accept=no): the
 listening socket is passed in as fd 3. Every pending datagram is read; a
 packet starts Sunshine only if
 
-  * it comes from an allowed client IP (CLIENT_IP: the TV, possibly with both
-    its cable and its Wi-Fi address), and
+  * it comes from the local network - FIREWALL_SCOPE=lan (default): any private
+    IPv4 address, so the TV may use any address, cable or Wi-Fi; FIREWALL_SCOPE=client:
+    only the addresses in CLIENT_IP - and
   * it is a Wake-on-LAN magic packet (6 x 0xFF + 16 x MAC) for this PC's MAC.
 
 Moonlight TV sends exactly this: a 102-byte broadcast to 255.255.255.255:9
@@ -15,6 +16,7 @@ Moonlight TV sends exactly this: a 102-byte broadcast to 255.255.255.255:9
 Runs as the desktop user, so starting the Sunshine *user* service needs no
 root privileges.
 """
+import ipaddress
 import os
 import socket
 import subprocess
@@ -23,7 +25,10 @@ import sys
 SD_LISTEN_FDS_START = 3
 
 mac = bytes.fromhex(os.environ["WOL_MAC"].replace(":", ""))
-allowed_src = set(os.environ["CLIENT_IP"].replace(",", " ").split())  # e.g. cable + Wi-Fi IP
+scope = os.environ.get("FIREWALL_SCOPE", "lan")
+client_ips = set(os.environ.get("CLIENT_IP", "").replace(",", " ").split())
+PRIVATE = [ipaddress.ip_network(n) for n in
+           ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16")]
 unit = os.environ["SUNSHINE_UNIT"]
 if len(mac) != 6:
     sys.exit(f"WOL_MAC must be a 6-byte MAC address, got {os.environ['WOL_MAC']!r}")
@@ -32,6 +37,18 @@ expected = b"\xff" * 6 + mac * 16
 
 def log(msg: str) -> None:
     print(msg, flush=True)
+
+
+def allowed(src: str) -> bool:
+    """A Wake only starts Sunshine (which still needs a paired client), so on
+    the LAN scope any private source is fine; IPs are spoofable anyway."""
+    if scope == "client":
+        return src in client_ips
+    try:
+        addr = ipaddress.ip_address(src)
+    except ValueError:
+        return False
+    return any(addr in net for net in PRIVATE)
 
 
 def main() -> int:
@@ -48,8 +65,9 @@ def main() -> int:
             data, (src, _port) = sock.recvfrom(2048)
         except BlockingIOError:
             break
-        if src not in allowed_src:
-            log(f"ignored packet from {src}: not the allowed client")
+        if not allowed(src):
+            log(f"ignored packet from {src}: not the allowed client"
+                + (" (CLIENT_IP)" if scope == "client" else " (not a private LAN address)"))
             continue
         if expected not in data:
             log(f"ignored packet from {src}: not a magic packet for this PC")

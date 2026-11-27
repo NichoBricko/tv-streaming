@@ -13,7 +13,7 @@
 | Display switches to TV resolution | ✅ kscreen | 🛠 your command (`gdctl`…) | 🟡 wlr-randr | 🟡 xrandr | 🛠 Sunshine display settings / Apollo | ❌ |
 | Unlock for stream / relock after | ✅ | 🟡 (logind) | 🟡 depends on locker | 🟡 depends on locker | ❌ | ❌ |
 | Steam window fix after stream | ✅ | 🟡 | 🟡 | 🟡 | not needed | ❌ |
-| Firewall limited to the TV | ✅ ufw | 🟡 ufw/firewalld | 🟡 | 🟡 | 🛠 PowerShell | ❌ |
+| Firewall limited to the local network (TV identified by pairing) | ✅ ufw | 🟡 ufw/firewalld | 🟡 | 🟡 | 🛠 PowerShell | ❌ |
 
 **Login manager** for the TV session's auto-login: Plasma Login Manager ✅ · SDDM 🟡 · others 🛠 (configure auto-login to the `sunshine-tv` session yourself).
 **Sunshine package:** native (pacman/AUR/COPR/deb) ✅ · Flatpak 🟡 (prep commands run via `flatpak-spawn --host`; no KMS capture).

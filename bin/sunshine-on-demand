@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sunshine-on-demand start|stop|status|cleanup|login|healthcheck
+# sunshine-on-demand start|stop|status|cleanup|login|healthcheck|learn-client
 #
 # Start/stop the Sunshine user service by hand (menu entries, KDE Connect, ...).
 # When started this way it still stops itself after IDLE_LIMIT without a stream.
@@ -19,6 +19,13 @@
 # it found no display/encoder at startup - e.g. right after resume from sleep,
 # before the GPU's outputs are back - and then no client can connect. If this
 # start logged "Fatal: Unable to find display or encoder", restart it.
+#
+# "learn-client" (first "do" step of the streamed app): Sunshine runs it while
+# the client's HTTPS launch request - which only a PAIRED client (certificate)
+# can make - is still open. Record that client's MAC address(es) in
+# /var/lib/sunshine-on-demand/clients, so the TV-session check at boot can
+# recognise the TV on any IP, on cable or Wi-Fi. Never fails (a failing "do"
+# step would abort the stream).
 
 set -u
 CONFIG=${SOD_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/sunshine-on-demand/config.env}
@@ -83,12 +90,30 @@ healthcheck() {
   done
 }
 
+learn_client() {
+  local dir=${SOD_STATE_DIR:-/var/lib/sunshine-on-demand} ip mac now tmp
+  [[ -d $dir && -w $dir ]] || { log "learn-client: $dir missing or not writable (run setup.sh install --system)"; return 0; }
+  now=$(date +%s)
+  for ip in $(ss -Htn state established '( sport = :47984 )' 2>/dev/null | awk '{print $4}' \
+              | sed -E 's/^\[?(::ffff:)?//; s/\]?:[0-9]+$//' | sort -u); do
+    ip route get "$ip" 2>/dev/null | grep -q ' via ' && continue      # routed: we'd only see the router's MAC
+    mac=$(ip neigh show "$ip" 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "lladdr") {print $(i+1); exit}}')
+    [[ $mac =~ ^([0-9a-f]{2}:){5}[0-9a-f]{2}$ ]] || continue
+    tmp=$(mktemp "$dir/.clients.XXXXXX") || return 0
+    { grep -v "^$mac " "$dir/clients" 2>/dev/null; echo "$mac $ip $now"; } | tail -n 8 > "$tmp"
+    chmod 644 "$tmp"; mv -f "$tmp" "$dir/clients"
+    log "learn-client: paired client on $ip ($mac) remembered"
+  done
+  return 0
+}
+
 case "${1:-status}" in
   start)   systemctl --user start "$UNIT" ;;
   stop)    systemctl --user stop "$UNIT"; cleanup ;;
   cleanup) cleanup ;;
   login)   login ;;
   healthcheck) healthcheck ;;
+  learn-client) learn_client ;;
   status)  systemctl --user --no-pager status "$UNIT" ;;
-  *) echo "usage: $0 start|stop|status|cleanup|login|healthcheck" >&2; exit 2 ;;
+  *) echo "usage: $0 start|stop|status|cleanup|login|healthcheck|learn-client" >&2; exit 2 ;;
 esac

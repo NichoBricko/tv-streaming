@@ -15,12 +15,12 @@ Technical reference for the Linux implementation. For installing, see the [READM
 | **Steam fix-up** | Steam is restarted minimized after the stream, so it doesn't keep its 4K layout on a 1080p monitor. While a game is still running the restart waits until it has closed. Not needed if Steam's "Scale text and icons to match monitor settings" is off (recommended). |
 | **No sleep mid-game** | A `systemd-inhibit` lock is held while streaming (controller input doesn't count as desktop activity). |
 | **Stream smoothness** (optional) | `SUNSHINE_STRICT_RC` limits keyframe size; `STREAM_PACING_MBIT` paces only Sunshine's video (UDP 47998) via `sunshine-stream-pacing.service`, so 100 Mb/s TVs don't overflow on keyframes. |
-| **Locked down** | Only one app (Steam Big Picture); keyboard/mouse (optionally controller) input from the TV blocked; stream encryption required; web UI local-only; firewall open **only** to the client's IP. |
+| **Locked down** | Only one app (Steam Big Picture); keyboard/mouse (optionally controller) input from the TV blocked; stream encryption required; web UI local-only; firewall open only to the **local network** (or only `CLIENT_IP`); only the **paired** client can stream. |
 
 ## What gets installed
 | Component | Scope | What it does |
 |---|---|---|
-| `sunshine-wol.socket` + `sunshine-wol.service` | system | Listens on UDP 9. `sunshine-wol-handler.py` (runs as you) starts Sunshine **only** for a magic packet with your MAC sent **from `CLIENT_IP`**. If nobody is logged in yet, it remembers the wake (`/run/sunshine-on-demand/wake-pending`). |
+| `sunshine-wol.socket` + `sunshine-wol.service` | system | Listens on UDP 9. `sunshine-wol-handler.py` (runs as you) starts Sunshine **only** for a magic packet with your MAC from a **private LAN address** (`FIREWALL_SCOPE="lan"`) or from `CLIENT_IP` (`"client"`). If nobody is logged in yet, it remembers the wake (`/run/sunshine-on-demand/wake-pending`). |
 | `sunshine-resume.service` | system | Starts Sunshine after every resume (the idle timer stops it again if nobody connects). |
 | `sunshine-healthcheck.service` + drop-in `<sunshine unit>.d/sunshine-on-demand.conf` | user | The drop-in makes every Sunshine start pull in the health check (`sunshine-on-demand healthcheck`); the Wake listener also starts it when Sunshine already runs. |
 | `sunshine-login.service` | user | At login: starts Sunshine if a Wake arrived while nobody was logged in. |
@@ -32,7 +32,8 @@ Technical reference for the Linux implementation. For installing, see the [READM
 | `~/.local/share/applications/sunshine-{start,stop}.desktop` | user | Menu entries. |
 | `~/.config/sunshine-on-demand/config.env` | user | Copy of your `config.env`, read by the helpers. |
 | `~/.config/sunshine/sunshine.conf`, `apps.json` | user | **Merged**, not replaced (backups `*.bak-<date>` when something changed). |
-| Firewall rules | system | ufw / firewalld: TCP 47984, 47989, 48010 + UDP 47998–48000 (+ UDP 9) **from `CLIENT_IP` only** (one rule set per address when it lists several, e.g. the TV's cable and Wi-Fi IP). The web UI port 47990 is not opened. Connections the firewall blocks from other addresses are logged as a warning by `sunshine-idle-stop`. |
+| Firewall rules | system | ufw / firewalld: TCP 47984, 47989, 48010 + UDP 47998–48000 (+ UDP 9). `FIREWALL_SCOPE="lan"` (default): from 10/8, 172.16/12, 192.168/16 on the PC's physical Ethernet/Wi-Fi interfaces only (ufw `allow in on <if>`; firewalld: those interfaces' zone), so VPNs, containers and the internet stay out. `"client"`: from `CLIENT_IP` only. Re-installing removes the old rules first. The web UI port 47990 is never opened. |
+| `/var/lib/sunshine-on-demand/clients` | system dir, written as you | MAC + last IP of the paired client, recorded by the app's first prep step (`sunshine-on-demand learn-client`) while its certificate-checked launch request is open. The TV-session boot check finds the TV by these MACs (ARP scan), on any IP. |
 
 ## The streamed app
 Sunshine runs the **do** steps top→bottom when a stream starts, and the **undo** steps bottom→top when it ends:
@@ -59,7 +60,7 @@ Waking the PC from power-off ends at the login screen, where no user session exi
 
 How the PC decides to enter it (`TV_AUTOLOGIN="auto"` uses all three; each does a **one-time** auto-login: set auto-login → restart the login screen while nobody is logged in → remove the auto-login 20 s later, serialized by a lock):
 
-1. **The TV is on** (`sunshine-tv-clientcheck.service`): right after boot, alongside the login screen (it doesn't delay it), the PC pings `CLIENT_IP` for up to `TV_CLIENT_CHECK_SECONDS`. If the TV answers, someone pressed Wake. This gives **one press**, with the session ready ~13 s after power-on on the reference PC. It needs a TV that drops off the network in standby; check with `ping <TV IP>` while it's off.
+1. **The TV is on** (`sunshine-tv-clientcheck.service`): right after boot, alongside the login screen (it doesn't delay it), the PC looks for the TV for up to `TV_CLIENT_CHECK_SECONDS`: by the **MACs learned at stream start** (ARP scan of the LAN, so a new IP or cable↔Wi-Fi doesn't matter) and by pinging its last IPs and `CLIENT_IP`. The first cold boot after install needs `CLIENT_IP` or one earlier stream; `sudo /usr/local/lib/sunshine-on-demand/sunshine-tv-autologin client-scan` shows what it finds. If the TV answers, someone pressed Wake. This gives **one press**, with the session ready ~13 s after power-on on the reference PC. It needs a TV that drops off the network in standby; check with `ping <TV IP>` while it's off.
 2. **A Wake at the login screen** (`sunshine-tv-wake.path`): the fallback. Press Wake again once the PC sits at the login screen.
 3. **Boot reason** (`sunshine-tv-autologin.service`): the SMBIOS Wake-up Type `LAN Remote` / `PCI PME#` (`TV_WAKE_TYPES`). Many boards always report "Power Switch", so this is a bonus only.
 
@@ -72,10 +73,13 @@ Limits:
 
 ## Security model
 - **Sunshine only runs when needed.** When it's stopped, nothing can connect.
-- **Only the paired client can stream** (PIN pairing → client certificate), and the firewall only lets `CLIENT_IP` reach Sunshine and the Wake listener.
+- **Only the paired client can stream.** Pairing needs a PIN typed into the web UI, which only listens on the PC itself. Every useful request (app list, launch) needs the client certificate made at pairing; the stream channels only work after such a launch, and encryption is mandatory (`lan_encryption_mode` and `wan_encryption_mode` = 2). The certificate, not the IP, identifies the TV, so it may change address or switch between cable and Wi-Fi.
+- **The firewall keeps Sunshine on the local network** (`FIREWALL_SCOPE="lan"`): private addresses on the PC's own Ethernet/Wi-Fi only. IP or MAC allowlists add little on a LAN (both are trivial to fake) and break when the TV changes address; `FIREWALL_SCOPE="client"` is still available.
 - **A Wake packet never unlocks anything.** It only starts Sunshine (or the locked TV session). The session is unlocked only when a paired client starts an **encrypted** stream, and is locked again afterwards.
 - **The TV can't take over the PC.** With `BLOCK_CLIENT_*`, it can't type, move the mouse or (optionally) send controller input. With `REMOVE_DESKTOP_APP`, it can't show your desktop, only Big Picture.
 - **Accepted risks:**
+  - While Sunshine runs, any device on your LAN can see it (host name, Sunshine version, busy or not; Sunshine also announces itself via mDNS), open pairing requests (they need your PIN at the PC) and reach the code that runs before the certificate check. So **keep Sunshine updated**: security fixes ship regularly. Put untrusted devices (guests, IoT) on a guest network.
+  - Any LAN device can send a Wake and start Sunshine. That unlocks nothing; Sunshine stops again after `IDLE_LIMIT`.
   - While you stream, the PC's own monitor shows the unlocked session.
   - If Moonlight disconnects **without quitting the app**, the session stays unlocked until you reconnect and quit, or until `IDLE_LIMIT` passes. Then `sunshine-idle-stop` stops Sunshine, and `sunshine-on-demand cleanup` restores the display, relocks and releases the inhibitor.
 - **On the TV:** disable automatic content recognition (LG Live Plus, Samsung Viewing Information Services, …).

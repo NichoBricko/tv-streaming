@@ -30,7 +30,7 @@ Project files are in `${CLAUDE_PLUGIN_ROOT}`. Read the docs there when a step ne
 ## 1. Interview
 Use AskUserQuestion, at most 4 questions per round:
 - **Host:** Windows or Linux? (Detect it; just confirm.) Is the PC on **Ethernet**?
-- **Client:** which TV or box? (LG, Samsung, Android/Google TV brand, Shield, Apple TV, Fire TV model, other). Its **IP address**. Recommend a DHCP reservation in the router; you can find the device with `ip neigh` / `avahi-browse -art` if needed.
+- **Client:** which TV or box? (LG, Samsung, Android/Google TV brand, Shield, Apple TV, Fire TV model, other). Its IP is **optional** (default `FIREWALL_SCOPE="lan"`: the paired TV works on any address); ask for it only if they want `FIREWALL_SCOPE="client"` (then recommend a DHCP reservation) or for the standby check. Find it with `ip neigh` / `avahi-browse -art`. If the TV is cabled, recommend turning its Wi-Fi off.
 - **Controller:** paired with the **PC** (lowest latency; the TV becomes display-only) or with the **TV**?
 - **Cold boot:** should Wake from **power-off** work without typing a password (TV session, KDE only), or is wake from sleep enough?
 - **Launcher:** Steam (Big Picture) by default. Heroic/Epic games work as non-Steam shortcuts; see the RDR2 extra for Rockstar/Epic quirks.
@@ -95,9 +95,9 @@ Recommend: Steam → Settings → Interface → **"Scale text and icons to match
 ## 6. Pair, then the standby check
 1. `sunshine-on-demand start`. The user opens https://localhost:47990, creates a login, and enters the PIN Moonlight shows.
 2. **Standby check**, only if `TV_SESSION=yes`:
-   - the user puts the TV in standby and waits 30 s; you run `ping -c3 <IP>`;
-   - **no reply** → keep `TV_AUTOLOGIN="auto"` (one press);
-   - **replies** → suggest turning off Quick Start+/Instant On/network standby, or set `TV_AUTOLOGIN="on-wake"`, and the user re-runs `install --system`.
+   - after one test stream (it records the TV's MAC), the user puts the TV in standby and waits 30 s, then runs `sudo /usr/local/lib/sunshine-on-demand/sunshine-tv-autologin client-scan` (or you run `ping -c3 <IP>`);
+   - **not found / no reply** → keep `TV_AUTOLOGIN="auto"` (one press);
+   - **found / replies** → suggest turning off Quick Start+/Instant On/network standby, or set `TV_AUTOLOGIN="on-wake"`, and the user re-runs `install --system`.
 3. If the TV session is used: on the TV, turn off automatic content recognition (privacy).
 
 ## 7. Test with the user, in order

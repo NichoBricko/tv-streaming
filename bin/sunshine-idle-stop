@@ -18,7 +18,7 @@ IDLE_LIMIT=${IDLE_LIMIT:-600}
 
 systemctl --user is-active --quiet "$UNIT" || exit 0
 
-# Warn once per address and boot when the firewall blocked a connection to
+# FIREWALL_SCOPE=client only: warn once per address and boot when the firewall blocked a connection to
 # Sunshine from an address that isn't in CLIENT_IP - typically the TV joined
 # Wi-Fi (another IP) while Wake still arrives over its cable. Needs read access
 # to the kernel log (journal group, as on most desktops); silently skipped otherwise.
@@ -40,7 +40,7 @@ warn_blocked_clients() {
         fi
       done
 }
-[[ -n ${CLIENT_IP:-} ]] && warn_blocked_clients
+[[ ${FIREWALL_SCOPE:-lan} == client && -n ${CLIENT_IP:-} ]] && warn_blocked_clients
 
 # Start of the current Sunshine run (epoch seconds)
 start_s=$(date -d "$(systemctl --user show -p ActiveEnterTimestamp --value "$UNIT")" +%s 2>/dev/null) || exit 0

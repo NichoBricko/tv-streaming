@@ -22,6 +22,8 @@ UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 APP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 SYS_LIB=/usr/local/lib/sunshine-on-demand
 SYS_ENV=/etc/sunshine-on-demand.env
+SYS_STATE=/var/lib/sunshine-on-demand      # learned client MACs (TV-session presence check)
+PRIVATE_NETS="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16"
 SUNSHINE_TCP="47984,47989,48010"
 SUNSHINE_UDP="47998:48000"
 DRY=no
@@ -40,13 +42,17 @@ load_config() {
   # shellcheck source=/dev/null
   . "$CONFIG_SRC"
   # CLIENT_IP: one or more addresses of the client (e.g. the TV's cable and Wi-Fi IP)
+  FIREWALL_SCOPE=${FIREWALL_SCOPE:-lan}
+  [[ $FIREWALL_SCOPE == lan || $FIREWALL_SCOPE == client ]] || die "FIREWALL_SCOPE must be lan or client"
   local cip=${CLIENT_IP:-}; read -r -a CLIENT_IPS <<< "${cip//,/ }"
-  (( ${#CLIENT_IPS[@]} )) || die "set CLIENT_IP in config.env to your TV/streaming box's IP"
+  if [[ $FIREWALL_SCOPE == client ]] && (( ${#CLIENT_IPS[@]} == 0 )); then
+    die "FIREWALL_SCOPE=client needs CLIENT_IP (your TV/streaming box's IP) in config.env"
+  fi
   local ip
   for ip in "${CLIENT_IPS[@]}"; do
     [[ $ip =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || die "CLIENT_IP: '$ip' is not an IPv4 address"
   done
-  CLIENT_IP="${CLIENT_IPS[*]}"
+  CLIENT_IP="${CLIENT_IPS[*]:-}"
   if [[ $WAKE_ON_LAN == yes && ! ${WOL_MAC:-} =~ ^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$ ]]; then
     die "WAKE_ON_LAN=yes needs a valid WOL_MAC (aa:bb:cc:dd:ee:ff) in config.env"
   fi
@@ -141,9 +147,9 @@ cmd_configure() {
   detect
 
   if [[ -z $client_ip && -t 0 ]]; then
-    read -r -p "IP address of your TV / streaming box (give it a fixed IP in your router): " client_ip
+    read -r -p "IP address of your TV / streaming box (optional, Enter to skip): " client_ip
   fi
-  [[ -n $client_ip ]] || warn "no --client-ip given; set CLIENT_IP in config.env before installing"
+  [[ -n $client_ip ]] || info "no client IP given: fine - the paired TV is recognised on any address (see FIREWALL_SCOPE)"
 
   say "Detected"
   info "Sunshine unit:    ${D_SUNSHINE_UNIT:-NOT FOUND (install Sunshine first)}  flatpak=$D_SUNSHINE_FLATPAK"
@@ -223,10 +229,10 @@ configure_sunshine_conf() {
   local enc=""; [[ $REQUIRE_ENCRYPTION == yes ]] && enc=2
   local web=""; [[ $WEB_UI_LOCAL_ONLY == yes ]] && web=pc
   if [[ $DRY == yes ]]; then
-    info "[dry-run] sunshine.conf: keyboard=$kbm mouse=$kbm controller=$ctrl lan_encryption_mode=${enc:-default} origin_web_ui_allowed=${web:-default} encoder=${SUNSHINE_ENCODER:-auto} capture=${SUNSHINE_CAPTURE:-auto} adapter_name=${SUNSHINE_ADAPTER:-auto} min_log_level=${SUNSHINE_LOG_LEVEL:-default} vaapi_strict_rc_buffer=${SUNSHINE_STRICT_RC:-no}"
+    info "[dry-run] sunshine.conf: keyboard=$kbm mouse=$kbm controller=$ctrl lan_encryption_mode=${enc:-default} wan_encryption_mode=${enc:-default} origin_web_ui_allowed=${web:-default} encoder=${SUNSHINE_ENCODER:-auto} capture=${SUNSHINE_CAPTURE:-auto} adapter_name=${SUNSHINE_ADAPTER:-auto} min_log_level=${SUNSHINE_LOG_LEVEL:-default} vaapi_strict_rc_buffer=${SUNSHINE_STRICT_RC:-no}"
     return
   fi
-  python3 -I - "$f" keyboard="$kbm" mouse="$kbm" controller="$ctrl" lan_encryption_mode="$enc" \
+  python3 -I - "$f" keyboard="$kbm" mouse="$kbm" controller="$ctrl" lan_encryption_mode="$enc" wan_encryption_mode="$enc" \
     origin_web_ui_allowed="$web" encoder="${SUNSHINE_ENCODER:-}" capture="${SUNSHINE_CAPTURE:-}" \
     adapter_name="${SUNSHINE_ADAPTER:-}" min_log_level="${SUNSHINE_LOG_LEVEL:-}" \
     vaapi_strict_rc_buffer="$([[ ${SUNSHINE_STRICT_RC:-no} == yes ]] && echo enabled)" <<'EOF'
@@ -264,6 +270,8 @@ except (FileNotFoundError, json.JSONDecodeError):
     data = {"env": {}, "apps": []}
 # Sunshine runs "do" top-to-bottom and "undo" bottom-to-top.
 prep = []
+# first: remember the paired client's MAC (its HTTPS launch request is still open)
+prep.append({"do": f"{b}/sunshine-on-demand learn-client", "undo": ""})
 if e["INHIBIT"] == "yes":
     prep.append({"do": "systemctl --user start sunshine-stream-inhibit.service",
                  "undo": "systemctl --user stop sunshine-stream-inhibit.service"})
@@ -334,17 +342,62 @@ render_unit() {  # render_unit <template> <dest>
   sudo_run install -m 644 "$tmp" "$2"; rm -f "$tmp"
 }
 
+# Physical Ethernet/Wi-Fi interfaces (no VPN/tun, docker, veth, bridges): the LAN side.
+lan_ifaces() {
+  if [[ -n ${LAN_IFACES:-} ]]; then echo "$LAN_IFACES"; return; fi
+  local d out=()
+  for d in /sys/class/net/*; do
+    [[ -e $d/device && $(cat "$d/type" 2>/dev/null) == 1 ]] && out+=("${d##*/}")
+  done
+  (( ${#out[@]} )) || out=("$(ip route show default 2>/dev/null | awk '{print $5; exit}')")
+  echo "${out[*]}"
+}
+
+# Remove every rule this project added (also older single-IP rules), so a
+# re-install never leaves stale ones behind.
+firewall_remove_ours() {
+  if [[ $DRY == yes ]]; then info "[dry-run] remove existing sunshine-on-demand firewall rules"; return; fi
+  case $FIREWALL in
+    ufw)
+      local n
+      for n in $(sudo ufw status numbered | sed -n 's/^\[ *\([0-9]\+\)\].*sunshine-on-demand:.*/\1/p' | sort -rn); do
+        sudo ufw --force delete "$n" >/dev/null && info "removed ufw rule #$n"
+      done ;;
+    firewalld)
+      local z r
+      for z in $(sudo firewall-cmd --permanent --get-zones); do
+        sudo firewall-cmd --permanent --zone="$z" --list-rich-rules \
+          | grep -E 'source address="[^"]+" port port="(47984|47989|48010|47998-48000|9)" protocol="(tcp|udp)" accept' \
+          | while IFS= read -r r; do
+              sudo firewall-cmd --permanent --zone="$z" --remove-rich-rule="$r" >/dev/null && info "removed ($z): $r"
+            done
+      done ;;
+  esac
+}
+
 firewall_rules() {  # firewall_rules add|delete
   local action=$1
+  [[ $FIREWALL == none ]] && { info "no firewall configured (FIREWALL=none)"; return 0; }
+  [[ $FIREWALL == ufw || $FIREWALL == firewalld ]] || { warn "unknown FIREWALL '$FIREWALL'"; return 0; }
+  firewall_remove_ours
+  [[ $action == add ]] || return 0
+
+  # Sources: "lan" = private addresses arriving on the PC's Ethernet/Wi-Fi
+  # interfaces (the paired TV works on any address); "client" = only CLIENT_IP.
+  local srcs ifaces ip ifc
+  if [[ $FIREWALL_SCOPE == client ]]; then srcs="${CLIENT_IPS[*]}"; ifaces=""
+  else srcs=$PRIVATE_NETS; ifaces=$(lan_ifaces); fi
+
   case $FIREWALL in
     ufw)
       ufw_rule() {  # ufw_rule <ports> <proto> <comment>
-        local ip
-        for ip in "${CLIENT_IPS[@]}"; do
-          if [[ $action == add ]]; then
-            sudo_run ufw allow from "$ip" to any port "$1" proto "$2" comment "sunshine-on-demand: $3"
+        for ip in $srcs; do
+          if [[ -n $ifaces ]]; then
+            for ifc in $ifaces; do
+              sudo_run ufw allow in on "$ifc" from "$ip" to any port "$1" proto "$2" comment "sunshine-on-demand: $3"
+            done
           else
-            sudo_run ufw delete allow from "$ip" to any port "$1" proto "$2" || true
+            sudo_run ufw allow from "$ip" to any port "$1" proto "$2" comment "sunshine-on-demand: $3"
           fi
         done
       }
@@ -352,28 +405,37 @@ firewall_rules() {  # firewall_rules add|delete
       ufw_rule "$SUNSHINE_UDP" udp "Sunshine stream"
       if [[ $WAKE_ON_LAN == yes ]]; then ufw_rule 9 udp "Wake-on-LAN"; fi ;;
     firewalld)
-      local op=--add-rich-rule; [[ $action == delete ]] && op=--remove-rich-rule
-      local p ip
-      for ip in "${CLIENT_IPS[@]}"; do
-        for p in "47984 tcp" "47989 tcp" "48010 tcp" "47998-48000 udp" "9 udp"; do
-          [[ $p == "9 udp" && $WAKE_ON_LAN != yes ]] && continue
-          sudo_run firewall-cmd --permanent "$op=rule family=\"ipv4\" source address=\"$ip\" port port=\"${p% *}\" protocol=\"${p#* }\" accept"
+      # firewalld has zones: add the rules to the zone(s) of the LAN interfaces
+      # (a cafe Wi-Fi in the "public" zone stays closed).
+      local zones="" z p
+      if [[ -n $ifaces ]]; then
+        for ifc in $ifaces; do
+          z=$(firewall-cmd --get-zone-of-interface="$ifc" 2>/dev/null) || z=$(firewall-cmd --get-default-zone)
+          [[ " $zones " == *" $z "* ]] || zones+=" $z"
+        done
+      else zones=$(firewall-cmd --get-default-zone); fi
+      for z in $zones; do
+        for ip in $srcs; do
+          for p in "47984 tcp" "47989 tcp" "48010 tcp" "47998-48000 udp" "9 udp"; do
+            [[ $p == "9 udp" && $WAKE_ON_LAN != yes ]] && continue
+            sudo_run firewall-cmd --permanent --zone="$z" --add-rich-rule="rule family=\"ipv4\" source address=\"$ip\" port port=\"${p% *}\" protocol=\"${p#* }\" accept"
+          done
         done
       done
       sudo_run firewall-cmd --reload ;;
-    none) info "no firewall configured (FIREWALL=none)" ;;
-    *) warn "unknown FIREWALL '$FIREWALL'" ;;
   esac
 }
 
 install_system() {
   say "System units (sudo)"
   local tmp; tmp=$(mktemp)
-  printf 'WOL_MAC=%s\nCLIENT_IP="%s"\nSUNSHINE_UNIT=%s\nSOD_USER=%s\nTV_AUTOLOGIN=%s\nTV_WAKE_TYPES="%s"\nTV_CLIENT_CHECK_SECONDS=%s\nSTREAM_IFACE=%s\nSTREAM_PACING_MBIT=%s\n' \
+  printf 'WOL_MAC=%s\nCLIENT_IP="%s"\nSUNSHINE_UNIT=%s\nSOD_USER=%s\nTV_AUTOLOGIN=%s\nTV_WAKE_TYPES="%s"\nTV_CLIENT_CHECK_SECONDS=%s\nSTREAM_IFACE=%s\nSTREAM_PACING_MBIT=%s\nFIREWALL_SCOPE=%s\n' \
     "$WOL_MAC" "$CLIENT_IP" "$SUNSHINE_UNIT" "$(id -un)" "$TV_AUTOLOGIN" "$TV_WAKE_TYPES" "$TV_CLIENT_CHECK_SECONDS" \
-    "${STREAM_IFACE:-$WOL_IFACE}" "${STREAM_PACING_MBIT:-}" > "$tmp"
+    "${STREAM_IFACE:-$WOL_IFACE}" "${STREAM_PACING_MBIT:-}" "$FIREWALL_SCOPE" > "$tmp"
   sudo_run install -m 644 "$tmp" "$SYS_ENV"; rm -f "$tmp"
   sudo_run install -D -m 755 "$REPO/lib/sunshine-wol-handler.py" "$SYS_LIB/sunshine-wol-handler.py"
+  # learned MACs of the paired client (written at stream start as you, read at boot)
+  sudo_run install -d -m 755 -o "$(id -un)" "$SYS_STATE"
   sudo_run install -m 644 "$REPO/systemd/system/sunshine-wol.socket" /etc/systemd/system/sunshine-wol.socket
   render_unit "$REPO/systemd/system/sunshine-wol.service.in" /etc/systemd/system/sunshine-wol.service
   render_unit "$REPO/systemd/system/sunshine-resume.service.in" /etc/systemd/system/sunshine-resume.service
@@ -389,7 +451,8 @@ install_system() {
   install_tv_session
   install_stream_pacing
 
-  say "Firewall ($FIREWALL): only $CLIENT_IP may reach Sunshine"
+  if [[ $FIREWALL_SCOPE == client ]]; then say "Firewall ($FIREWALL): only $CLIENT_IP may reach Sunshine"
+  else say "Firewall ($FIREWALL): Sunshine reachable from private addresses on $(lan_ifaces) - only the paired client can stream"; fi
   firewall_rules add
 
   if [[ $WAKE_ON_LAN == yes && -n ${NM_CONNECTION:-} ]]; then
@@ -520,6 +583,10 @@ cmd_status() {
   fi
   local bin; bin=$(readlink -f "$(command -v sunshine 2>/dev/null || true)" 2>/dev/null || true)
   [[ -n $bin ]] && { say "Capabilities"; info "$(getcap "$bin" 2>/dev/null || true)"; }
+  say "Paired client, as learned at stream start (MAC, last IP, when)"
+  if [[ -s $SYS_STATE/clients ]]; then
+    while read -r m i t; do info "$m  $i  $(date -d "@$t" '+%F %R' 2>/dev/null)"; done < "$SYS_STATE/clients"
+  else info "none yet - learned at the first stream (used to recognise the TV at boot)"; fi
   say "Last events"
   journalctl --user -t sunshine-tv-session -t sunshine-on-demand -t sunshine-session-lock -t sunshine-steam-reset -t sunshine-display-mode -n 6 --no-pager -o short 2>/dev/null | sed 's/^/   /'
   journalctl -u sunshine-tv-autologin -u sunshine-tv-clientcheck -u sunshine-tv-wake -b --no-pager -o cat 2>/dev/null | grep -E 'wake-up type|wake:|client-check:' | tail -4 | sed 's/^/   /' || true
@@ -543,7 +610,7 @@ cmd_report() {
     echo; echo "## User: TV session and helpers"
     journalctl --user -b "$boot" --no-pager -o short-iso -t sunshine-tv-session -t sunshine-on-demand -t sunshine-session-lock \
       -t sunshine-display-mode -t sunshine-steam-reset -t sunshine-idle-stop -t sunshine-open-app 2>/dev/null
-    echo; echo "## Firewall: blocked connections to Sunshine's ports (from another IP than CLIENT_IP?)"
+    echo; echo "## Firewall: blocked connections to Sunshine's ports (FIREWALL_SCOPE=${FIREWALL_SCOPE:-lan})"
     journalctl -k -b "$boot" --no-pager -o cat 2>/dev/null | grep -E 'BLOCK|REJECT|DROP' \
       | grep -oE 'SRC=[0-9.]+ .*DPT=(4798[4-9]|4799[0-9]|4800[0-9]|48010)\b' | grep -oE 'SRC=[0-9.]+|DPT=[0-9]+' | paste -d' ' - - | sort | uniq -c | sort -rn | head
     echo; echo "## Stream quality"
@@ -589,7 +656,7 @@ cmd_uninstall() {
   sudo_run systemctl disable --now sunshine-wol.socket sunshine-resume.service 2>/dev/null || true
   sudo_run rm -f /etc/systemd/system/sunshine-wol.socket /etc/systemd/system/sunshine-wol.service \
     /etc/systemd/system/sunshine-resume.service "$SYS_ENV"
-  sudo_run rm -rf "$SYS_LIB"
+  sudo_run rm -rf "$SYS_LIB" "$SYS_STATE"
   sudo_run systemctl daemon-reload
   firewall_rules delete || true
   if [[ -n ${NM_CONNECTION:-} ]]; then sudo_run nmcli connection modify "$NM_CONNECTION" 802-3-ethernet.wake-on-lan default; fi
