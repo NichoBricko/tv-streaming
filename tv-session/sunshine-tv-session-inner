@@ -24,6 +24,20 @@ MARKER=$RUN/sunshine-tv-session
 VARS=(WAYLAND_DISPLAY DISPLAY XAUTHORITY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_ID)
 log() { echo "sunshine-tv-session: $*"; logger -t sunshine-tv-session -- "$*" 2>/dev/null || true; }
 
+# However the TV session ends, stop the desktop portals it caused to start.
+# They are D-Bus activated inside this bare KWin, before XDG_CURRENT_DESKTOP
+# reaches the systemd user environment, so xdg-desktop-portal falls back to
+# the GTK backend and has no ScreenCast. The user manager outlives this
+# session, so without this the next Plasma login keeps that broken portal and
+# screen sharing (Discord/Vesktop, OBS, browsers) fails until it's restarted.
+# Stopped here, they are activated again fresh by the next session.
+cleanup() {
+  systemctl --user stop xdg-desktop-portal.service xdg-desktop-portal-gtk.service \
+    plasma-xdg-desktop-portal-kde.service 2>/dev/null || true
+  systemctl --user unset-environment WAYLAND_DISPLAY DISPLAY XAUTHORITY XDG_SESSION_DESKTOP 2>/dev/null || true
+}
+trap cleanup EXIT
+
 # Lock FIRST, through logind (so LockedHint is set and a stream can unlock it
 # with "loginctl unlock-session"). Nothing is running yet that could be used.
 for _ in $(seq 1 50); do
@@ -66,4 +80,3 @@ while pgrep -x steam >/dev/null || pgrep -f 'com.valvesoftware.Steam' >/dev/null
 log "Steam exited; ending the TV session"
 "$HOME/.local/bin/sunshine-on-demand" stop 2>/dev/null || systemctl --user stop "$UNIT"
 rm -f "$MARKER"
-systemctl --user unset-environment WAYLAND_DISPLAY DISPLAY XAUTHORITY 2>/dev/null || true

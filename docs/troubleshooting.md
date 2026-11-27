@@ -22,6 +22,7 @@ With the Claude Code plugin, run `/sunshine-on-demand:troubleshoot` and describe
 | Steam window wrong size after a stream | **Best fix:** Steam → Settings → Interface → **"Scale text and icons to match monitor settings" off** (saved as `"DPIScaling" "0"` in `~/.steam/registry.vdf`); Steam then keeps a fixed size whatever resolution the screen switches to, and Big Picture still scales itself. Otherwise `sunshine-steam-reset` restarts Steam after the stream; if a game was still running it waits until the game closes (`journalctl --user -t sunshine-steam-reset`). |
 | PC still unlocked / in 4K after leaving the stream | You disconnected without **quitting** the app. Quit from Moonlight's menu, or run `sunshine-on-demand stop`. |
 | Sunshine stopped mid-session | `journalctl --user -u sunshine-idle-stop`. It only stops after a disconnect + `IDLE_LIMIT`. |
+| **Screen sharing broken** on the desktop (Discord/Vesktop "Go Live", OBS, browser) after the PC booted into the TV session | The TV session left `xdg-desktop-portal` running with the GTK fallback and no ScreenCast. Fixed: the TV session now stops the portals when it ends. On an older install: `systemctl --user restart xdg-desktop-portal`, then restart the app. Check: `busctl --user introspect org.freedesktop.portal.Desktop /org/freedesktop/portal/desktop \| grep ScreenCast`. |
 | Controller lag / drop-outs | See [Controller](#controller) below, and [extras/xbox-controller-bluetooth](../extras/xbox-controller-bluetooth/README.md) for ~1 s Bluetooth dropouts. |
 
 ## Lessons learned (things that cost us hours)
@@ -32,6 +33,7 @@ With the Claude Code plugin, run `/sunshine-on-demand:troubleshoot` and describe
 - **Sunshine stays "active" when it found no display at startup.** Right after resume the GPU's outputs can be missing for a few seconds; Sunshine then logs `Fatal: Unable to find display or encoder` but keeps running, so "already running" doesn't mean "working". The health check restarts it. (A screen that is merely off/DPMS is fine.)
 - **Controller input doesn't count as desktop activity**, so without the sleep inhibitor the PC can suspend mid-game.
 - **`kwin_wayland --lockscreen` doesn't report the lock to logind**, so `loginctl unlock-session` can't unlock it. The TV session locks through logind instead.
+- **The user's systemd manager outlives the TV session.** Portals D-Bus-activated inside the bare KWin (no `XDG_CURRENT_DESKTOP` yet) pick the GTK fallback and keep running into the next Plasma login, so screen sharing silently fails there. The TV session stops them on exit.
 - **Many motherboards report SMBIOS Wake-up Type "Power Switch" for every boot**, Wake-on-LAN included, so the boot reason is unreliable.
 - **Flatpak Sunshine runs prep commands inside its sandbox**; they need `flatpak-spawn --host` (the installer does this).
 - **sudo needs a real terminal.** Neither Claude nor `!`-prefixed commands can answer the password prompt.
