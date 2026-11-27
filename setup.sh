@@ -532,6 +532,9 @@ cmd_report() {
     echo; echo "## User: TV session and helpers"
     journalctl --user -b "$boot" --no-pager -o short-iso -t sunshine-tv-session -t sunshine-on-demand -t sunshine-session-lock \
       -t sunshine-display-mode -t sunshine-steam-reset -t sunshine-idle-stop -t sunshine-open-app 2>/dev/null
+    echo; echo "## Firewall: blocked connections to Sunshine's ports (from another IP than CLIENT_IP?)"
+    journalctl -k -b "$boot" --no-pager -o cat 2>/dev/null | grep -E 'BLOCK|REJECT|DROP' \
+      | grep -oE 'SRC=[0-9.]+ .*DPT=(4798[4-9]|4799[0-9]|4800[0-9]|48010)\b' | grep -oE 'SRC=[0-9.]+|DPT=[0-9]+' | paste -d' ' - - | sort | uniq -c | sort -rn | head
     echo; echo "## Stream quality"
     echo "Oversized frames sent without FEC this boot: $(journalctl --user -b "$boot" -u "$u" --no-pager -o cat 2>/dev/null | grep -c 'Skipping FEC for abnormally large')"
     if [[ -x $BIN_DIR/lgtv-stream-stats ]]; then
